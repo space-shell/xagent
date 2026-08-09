@@ -87,8 +87,21 @@ fun LauncherScreen() {
     val connectionState by daemonClient.connectionState.collectAsState()
     val sessions by daemonClient.agents.collectAsState()
     val serverName by daemonClient.serverName.collectAsState()
-    var settingsHost by remember { mutableStateOf("100.127.193.39:6767") }
-    var settingsPassword by remember { mutableStateOf("") }
+
+    val prefs = remember { context.getSharedPreferences("daemon", android.content.Context.MODE_PRIVATE) }
+    var settingsHost by remember {
+        mutableStateOf(prefs.getString("host", "100.127.193.39:6767") ?: "100.127.193.39:6767")
+    }
+    var settingsPassword by remember {
+        mutableStateOf(prefs.getString("password", "") ?: "")
+    }
+
+    LaunchedEffect(settingsHost) {
+        prefs.edit().putString("host", settingsHost).apply()
+    }
+    LaunchedEffect(settingsPassword) {
+        prefs.edit().putString("password", settingsPassword).apply()
+    }
 
     DisposableEffect(daemonClient) {
         onDispose { daemonClient.close() }

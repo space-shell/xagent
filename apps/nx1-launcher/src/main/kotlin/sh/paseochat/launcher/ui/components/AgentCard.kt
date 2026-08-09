@@ -65,6 +65,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
@@ -100,7 +101,7 @@ fun AgentCard(
     val haptics = rememberHaptics()
 
     val planBorder = if (session.mode == AgentMode.Plan) {
-        Modifier.border(3.dp, Color(0xFFFFD600), RoundedCornerShape(28.dp))
+        Modifier.border(3.dp, Color(0xFFC9A227), RoundedCornerShape(28.dp))
     } else {
         Modifier
     }
@@ -250,6 +251,7 @@ private fun MicButton(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
+                        delay(250)
                         onMicDown()
                         try {
                             tryAwaitRelease()

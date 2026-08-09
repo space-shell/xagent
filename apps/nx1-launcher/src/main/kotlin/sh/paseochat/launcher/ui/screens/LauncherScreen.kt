@@ -134,6 +134,14 @@ fun LauncherScreen() {
 
     val pagerState = rememberPagerState(pageCount = { sessions.size + 1 })
 
+    var initialScrollDone by remember { mutableStateOf(false) }
+    LaunchedEffect(sessions.isNotEmpty()) {
+        if (sessions.isNotEmpty() && !initialScrollDone) {
+            initialScrollDone = true
+            pagerState.scrollToPage(0)
+        }
+    }
+
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         BoxWithConstraints(modifier = Modifier.padding(padding)) {
             val viewportHeight = maxHeight

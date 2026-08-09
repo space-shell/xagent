@@ -88,6 +88,27 @@ class PaseoDaemonClient(
         scope.cancel()
     }
 
+    fun respondToPermission(agentId: String, permissionRequestId: String, allow: Boolean) {
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "agent_permission_response")
+                put("agentId", agentId)
+                put("requestId", permissionRequestId)
+                putJsonObject("response") {
+                    if (allow) {
+                        put("behavior", "allow")
+                    } else {
+                        put("behavior", "deny")
+                    }
+                }
+            }
+        }
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "respondToPermission agentId=$agentId reqId=$permissionRequestId allow=$allow")
+        webSocket?.send(json)
+    }
+
     private fun doConnect() {
         val host = currentHost ?: return
         val url = "ws://$host/ws"
@@ -238,6 +259,12 @@ class PaseoDaemonClient(
         val attentionReason = agent["attentionReason"]?.jsonPrimitive?.contentOrNull
         val lastError = agent["lastError"]?.jsonPrimitive?.contentOrNull
 
+        val firstPerm = pendingPerms?.firstOrNull()?.jsonObject
+        val permId = firstPerm?.get("id")?.jsonPrimitive?.contentOrNull
+        val permDesc = firstPerm?.get("description")?.jsonPrimitive?.contentOrNull
+            ?: firstPerm?.get("title")?.jsonPrimitive?.contentOrNull
+            ?: firstPerm?.get("name")?.jsonPrimitive?.contentOrNull
+
         val state = when {
             hasPendingPerms -> AgentState.AwaitingInput
             status == "running" -> AgentState.Running
@@ -249,7 +276,7 @@ class PaseoDaemonClient(
             else -> AgentState.Idle
         }
 
-        val summary = lastError ?: when (state) {
+        val summary = lastError ?: permDesc ?: when (state) {
             AgentState.Running -> "Working in $cwd"
             AgentState.Done -> "Task complete."
             AgentState.Error -> "Agent encountered an error."
@@ -269,6 +296,7 @@ class PaseoDaemonClient(
             state = state,
             summary = summary,
             mode = mode,
+            pendingPermissionId = permId,
         )
     }
 

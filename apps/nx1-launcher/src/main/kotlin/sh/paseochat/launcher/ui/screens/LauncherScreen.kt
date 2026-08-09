@@ -216,7 +216,12 @@ fun LauncherScreen() {
                                         }
                                     },
                                     onApprove = {
-                                        if (!isConnected) {
+                                        if (isConnected) {
+                                            val permId = session.pendingPermissionId
+                                            if (permId != null) {
+                                                daemonClient.respondToPermission(session.id, permId, allow = true)
+                                            }
+                                        } else {
                                             val idx = stubs.indexOfFirst { it.id == session.id }
                                             if (idx >= 0) {
                                                 stubs[idx] = stubs[idx].copy(state = AgentState.Running)
@@ -224,7 +229,15 @@ fun LauncherScreen() {
                                         }
                                     },
                                     onApproveAlways = {
-                                        if (!isConnected) {
+                                        if (isConnected) {
+                                            val permId = session.pendingPermissionId
+                                            if (permId != null) {
+                                                daemonClient.respondToPermission(session.id, permId, allow = true)
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("Allowed \u2014 future requests still need approval")
+                                                }
+                                            }
+                                        } else {
                                             val idx = stubs.indexOfFirst { it.id == session.id }
                                             if (idx >= 0) {
                                                 stubs[idx] = stubs[idx].copy(state = AgentState.Running)
@@ -235,7 +248,12 @@ fun LauncherScreen() {
                                         }
                                     },
                                     onDeny = {
-                                        if (!isConnected) {
+                                        if (isConnected) {
+                                            val permId = session.pendingPermissionId
+                                            if (permId != null) {
+                                                daemonClient.respondToPermission(session.id, permId, allow = false)
+                                            }
+                                        } else {
                                             val idx = stubs.indexOfFirst { it.id == session.id }
                                             if (idx >= 0) {
                                                 stubs[idx] = stubs[idx].copy(state = AgentState.Idle)

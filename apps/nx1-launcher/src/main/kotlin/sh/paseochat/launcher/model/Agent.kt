@@ -12,4 +12,5 @@ data class AgentSession(
     val summary: String,
     val userInput: String = "",
     val mode: AgentMode = AgentMode.Build,
+    val pendingPermissionId: String? = null,
 )

@@ -203,7 +203,15 @@ fun LauncherScreen() {
                                         if (listeningId == session.id) voice.stop()
                                     },
                                     onCycleMode = {
-                                        if (!isConnected) {
+                                        if (isConnected) {
+                                            val newMode = if (session.mode == AgentMode.Plan) "auto" else "plan"
+                                            daemonClient.setAgentMode(session.id, newMode)
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar(
+                                                    if (newMode == "plan") "plan mode" else "build mode"
+                                                )
+                                            }
+                                        } else {
                                             val idx = stubs.indexOfFirst { it.id == session.id }
                                             if (idx >= 0) {
                                                 val newMode = if (stubs[idx].mode == AgentMode.Plan)

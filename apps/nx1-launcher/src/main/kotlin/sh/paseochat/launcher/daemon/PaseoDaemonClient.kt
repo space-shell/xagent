@@ -109,6 +109,21 @@ class PaseoDaemonClient(
         webSocket?.send(json)
     }
 
+    fun setAgentMode(agentId: String, modeId: String) {
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "set_agent_mode_request")
+                put("agentId", agentId)
+                put("modeId", modeId)
+                put("requestId", UUID.randomUUID().toString())
+            }
+        }
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "setAgentMode agentId=$agentId modeId=$modeId")
+        webSocket?.send(json)
+    }
+
     private fun doConnect() {
         val host = currentHost ?: return
         val url = "ws://$host/ws"

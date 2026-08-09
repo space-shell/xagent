@@ -71,4 +71,28 @@ private fun stubSessions(): List<AgentSession> = listOf(
         state = AgentState.Done,
         summary = "Wrote 40 fixtures into tests/fixtures/ and updated the snapshot index.",
     ),
+    AgentSession(
+        id = "4",
+        title = "Bump deps + renovate",
+        provider = "codex",
+        model = "gpt-5.4",
+        state = AgentState.Queued,
+        summary = "Waiting for a free slot — one agent is already running on this provider.",
+    ),
+    AgentSession(
+        id = "5",
+        title = "Triage CI failures",
+        provider = "copilot",
+        model = "gpt-5",
+        state = AgentState.Error,
+        summary = "Exited 1 after 42s: could not resolve host github.com (network was blocked).",
+    ),
+    AgentSession(
+        id = "6",
+        title = "New session",
+        provider = "claude",
+        model = "opus-4.6",
+        state = AgentState.Idle,
+        summary = "Agent ready. Hold the button to give it a task.",
+    ),
 )

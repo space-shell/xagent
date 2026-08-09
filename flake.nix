@@ -9,12 +9,14 @@
       let
         pkgs = import nixpkgs {
           inherit system;
-          config.allowUnfree = true;
+          config = {
+            allowUnfree = true;
+            android_sdk.accept_license = true;
+          };
         };
         android = pkgs.androidenv.composeAndroidPackages {
           platformVersions = [ "35" ];
           buildToolsVersions = [ "35.0.0" ];
-          includePlatformTools = true;
           includeEmulator = false;     # use Android Studio's emulator, or add true (large closure)
           includeNDK = false;
           includeSystemImages = false;

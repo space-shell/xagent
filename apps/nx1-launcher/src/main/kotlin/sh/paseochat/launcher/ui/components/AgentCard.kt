@@ -5,8 +5,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,8 +33,6 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PauseCircleOutline
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -89,6 +90,7 @@ fun AgentCard(
     onCycleMode: () -> Unit = {},
     onApprove: () -> Unit = {},
     onDeny: () -> Unit = {},
+    onApproveAlways: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val meta = stateMeta(session.state)
@@ -115,7 +117,7 @@ fun AgentCard(
                 colorFilter = ColorFilter.tint(meta.onContainerColor),
                 contentScale = ContentScale.Crop,
                 alpha = 0.07f,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
             )
             Column(
                 Modifier
@@ -154,6 +156,7 @@ fun AgentCard(
                     ApprovalBar(
                         onApprove = { haptics.confirm(); onApprove() },
                         onDeny = { haptics.reject(); onDeny() },
+                        onApproveAlways = onApproveAlways,
                     )
                 } else {
                     Row(
@@ -290,10 +293,12 @@ private fun TranscriptBubble(text: String, textColor: Color) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ApprovalBar(
     onApprove: () -> Unit,
     onDeny: () -> Unit,
+    onApproveAlways: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -301,25 +306,36 @@ private fun ApprovalBar(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Button(
-            onClick = onApprove,
-            modifier = Modifier.weight(1f),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = cs.primary,
-                contentColor = cs.onPrimary,
-            ),
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(36.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(cs.primary)
+                .then(
+                    if (onApproveAlways != null) {
+                        Modifier.combinedClickable(
+                            onClick = onApprove,
+                            onLongClick = onApproveAlways,
+                        )
+                    } else {
+                        Modifier.clickable(onClick = onApprove)
+                    }
+                ),
+            contentAlignment = Alignment.Center,
         ) {
-            Text("Allow", fontWeight = FontWeight.SemiBold)
+            Text("Allow", color = cs.onPrimary, fontWeight = FontWeight.SemiBold)
         }
-        Button(
-            onClick = onDeny,
-            modifier = Modifier.weight(1f),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = cs.error,
-                contentColor = cs.onError,
-            ),
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(36.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(cs.error)
+                .clickable(onClick = onDeny),
+            contentAlignment = Alignment.Center,
         ) {
-            Text("Deny", fontWeight = FontWeight.SemiBold)
+            Text("Deny", color = cs.onError, fontWeight = FontWeight.SemiBold)
         }
     }
 }

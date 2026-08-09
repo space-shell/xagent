@@ -51,6 +51,8 @@ import sh.paseochat.launcher.voice.rememberVoiceController
 import sh.paseochat.launcher.ui.components.AgentSession
 import sh.paseochat.launcher.ui.components.AgentMode
 import sh.paseochat.launcher.ui.components.AgentState
+import sh.paseochat.launcher.ui.components.ConnectionState
+import sh.paseochat.launcher.ui.components.SettingsCard
 import sh.paseochat.launcher.ui.components.stateDotColor
 import sh.paseochat.launcher.ui.theme.PaseoTheme
 
@@ -75,6 +77,10 @@ fun LauncherScreen() {
         )
     }
     var pendingListenId by remember { mutableStateOf<String?>(null) }
+
+    var settingsHost by remember { mutableStateOf("100.127.193.39:6767") }
+    var settingsPassword by remember { mutableStateOf("") }
+    var connectionState by remember { mutableStateOf(ConnectionState.Disconnected) }
 
     LaunchedEffect(Unit) {
         voice.onError = { msg ->
@@ -111,7 +117,7 @@ fun LauncherScreen() {
         }
     }
 
-    val pagerState = rememberPagerState(pageCount = { sessions.size })
+    val pagerState = rememberPagerState(pageCount = { sessions.size + 1 })
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         if (sessions.isEmpty()) {
@@ -126,9 +132,9 @@ fun LauncherScreen() {
                     pageSpacing = 0.dp,
                     contentPadding = PaddingValues(0.dp),
                     beyondViewportPageCount = 3,
-                    key = { sessions[it].id },
+                    key = { if (it < sessions.size) sessions[it].id else "__settings__" },
                 ) { pageIndex ->
-                    val session = sessions[pageIndex]
+                    val isSettings = pageIndex == sessions.size
                     val o = pagerState.getOffsetDistanceInPages(pageIndex)
                     val k = abs(o)
                     val isPeek = o <= 0f
@@ -149,48 +155,78 @@ fun LauncherScreen() {
                                     alpha = cardAlpha
                                 },
                         ) {
-                            AgentCard(
-                                session,
-                                listening = listeningId == session.id,
-                                partialText = if (listeningId == session.id) voice.partialText else "",
-                                onMicDown = {
-                                    if (!voice.isListening) {
-                                        if (hasMicPermission) {
-                                            startListening(session.id)
-                                        } else {
-                                            pendingListenId = session.id
-                                            permLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                        }
-                                    }
-                                },
-                                onMicUp = {
-                                    if (listeningId == session.id) voice.stop()
-                                },
-                                onCycleMode = {
-                                    val idx = sessions.indexOfFirst { it.id == session.id }
-                                    if (idx >= 0) {
-                                        val newMode = if (sessions[idx].mode == AgentMode.Plan)
-                                            AgentMode.Build else AgentMode.Plan
-                                        sessions[idx] = sessions[idx].copy(mode = newMode)
+                            if (isSettings) {
+                                SettingsCard(
+                                    host = settingsHost,
+                                    onHostChange = { settingsHost = it },
+                                    password = settingsPassword,
+                                    onPasswordChange = { settingsPassword = it },
+                                    connectionState = connectionState,
+                                    onConnect = {
+                                        connectionState = ConnectionState.Connected
                                         scope.launch {
-                                            snackbarHostState.showSnackbar("${newMode.name.lowercase()} mode")
+                                            snackbarHostState.showSnackbar("Connected to $settingsHost")
                                         }
-                                    }
-                                },
-                                onApprove = {
-                                    val idx = sessions.indexOfFirst { it.id == session.id }
-                                    if (idx >= 0) {
-                                        sessions[idx] = sessions[idx].copy(state = AgentState.Running)
-                                    }
-                                },
-                                onDeny = {
-                                    val idx = sessions.indexOfFirst { it.id == session.id }
-                                    if (idx >= 0) {
-                                        sessions[idx] = sessions[idx].copy(state = AgentState.Idle)
-                                    }
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                                    },
+                                    onDisconnect = {
+                                        connectionState = ConnectionState.Disconnected
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            } else {
+                                val session = sessions[pageIndex]
+                                AgentCard(
+                                    session,
+                                    listening = listeningId == session.id,
+                                    partialText = if (listeningId == session.id) voice.partialText else "",
+                                    onMicDown = {
+                                        if (!voice.isListening) {
+                                            if (hasMicPermission) {
+                                                startListening(session.id)
+                                            } else {
+                                                pendingListenId = session.id
+                                                permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
+                                        }
+                                    },
+                                    onMicUp = {
+                                        if (listeningId == session.id) voice.stop()
+                                    },
+                                    onCycleMode = {
+                                        val idx = sessions.indexOfFirst { it.id == session.id }
+                                        if (idx >= 0) {
+                                            val newMode = if (sessions[idx].mode == AgentMode.Plan)
+                                                AgentMode.Build else AgentMode.Plan
+                                            sessions[idx] = sessions[idx].copy(mode = newMode)
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("${newMode.name.lowercase()} mode")
+                                            }
+                                        }
+                                    },
+                                    onApprove = {
+                                        val idx = sessions.indexOfFirst { it.id == session.id }
+                                        if (idx >= 0) {
+                                            sessions[idx] = sessions[idx].copy(state = AgentState.Running)
+                                        }
+                                    },
+                                    onApproveAlways = {
+                                        val idx = sessions.indexOfFirst { it.id == session.id }
+                                        if (idx >= 0) {
+                                            sessions[idx] = sessions[idx].copy(state = AgentState.Running)
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Allowed always \u2014 future requests auto-approved")
+                                            }
+                                        }
+                                    },
+                                    onDeny = {
+                                        val idx = sessions.indexOfFirst { it.id == session.id }
+                                        if (idx >= 0) {
+                                            sessions[idx] = sessions[idx].copy(state = AgentState.Idle)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                         }
                     }
                 }
@@ -216,6 +252,7 @@ private fun StatusRail(
     onTap: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val cs = MaterialTheme.colorScheme
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
@@ -238,6 +275,22 @@ private fun StatusRail(
                         .background(color, shape),
                 )
             }
+        }
+        val settingsFocused = sessions.size == currentIndex
+        val settingsShape = if (settingsFocused) RoundedCornerShape(50) else CircleShape
+        Box(
+            modifier = Modifier
+                .pointerInput(sessions.size) { detectTapGestures { onTap(sessions.size) } }
+                .width(24.dp)
+                .height(28.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .width(8.dp)
+                    .height(if (settingsFocused) 24.dp else 8.dp)
+                    .background(cs.outline, settingsShape),
+            )
         }
     }
 }

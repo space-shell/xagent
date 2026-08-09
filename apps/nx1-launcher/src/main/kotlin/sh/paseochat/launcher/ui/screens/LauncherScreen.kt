@@ -49,7 +49,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlinx.coroutines.launch
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import sh.paseochat.launcher.ui.components.AgentCard
+import sh.paseochat.launcher.voice.rememberVoiceController
 import sh.paseochat.launcher.ui.components.AgentSession
 import sh.paseochat.launcher.ui.components.AgentState
 import sh.paseochat.launcher.ui.theme.PaseoTheme
@@ -67,6 +74,52 @@ fun LauncherScreen() {
     var detailId by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val voice = rememberVoiceController()
+    val context = LocalContext.current
+    var listeningId by remember { mutableStateOf<String?>(null) }
+    var hasMicPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED
+        )
+    }
+    var pendingListenId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        voice.onError = { msg ->
+            listeningId = null
+            scope.launch { snackbarHostState.showSnackbar(msg) }
+        }
+    }
+
+    fun startListening(sessionId: String) {
+        voice.onFinal = { text ->
+            val idx = sessions.indexOfFirst { it.id == sessionId }
+            if (idx >= 0) sessions[idx] = sessions[idx].copy(userInput = text)
+            listeningId = null
+            voice.reset()
+        }
+        voice.start()
+        if (voice.error != null) {
+            listeningId = null
+        } else {
+            listeningId = sessionId
+        }
+    }
+
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        hasMicPermission = granted
+        val pid = pendingListenId
+        pendingListenId = null
+        if (granted && pid != null) {
+            startListening(pid)
+        } else if (!granted) {
+            scope.launch { snackbarHostState.showSnackbar("Microphone permission denied") }
+        }
+    }
 
     val detail = detailId?.let { id -> sessions.firstOrNull { it.id == id } }
     BackHandler(enabled = detail != null) { detailId = null }
@@ -161,6 +214,21 @@ fun LauncherScreen() {
                                 AgentCard(
                                     session,
                                     onClick = { detailId = session.id },
+                                    listening = listeningId == session.id,
+                                    partialText = if (listeningId == session.id) voice.partialText else "",
+                                    onMicDown = {
+                                        if (!voice.isListening) {
+                                            if (hasMicPermission) {
+                                                startListening(session.id)
+                                            } else {
+                                                pendingListenId = session.id
+                                                permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
+                                        }
+                                    },
+                                    onMicUp = {
+                                        if (listeningId == session.id) voice.stop()
+                                    },
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }

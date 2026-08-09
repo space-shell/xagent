@@ -6,12 +6,14 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,10 +22,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.HourglassEmpty
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PauseCircleOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,8 +42,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -49,6 +55,7 @@ import sh.paseochat.launcher.ui.theme.DoneContainerLight
 import sh.paseochat.launcher.ui.theme.OnDoneDark
 import sh.paseochat.launcher.ui.theme.OnDoneLight
 import sh.paseochat.launcher.ui.theme.PaseoTheme
+import sh.paseochat.launcher.ui.theme.R1Orange
 
 enum class AgentState { Idle, Queued, Running, AwaitingInput, Done, Error }
 
@@ -60,12 +67,17 @@ data class AgentSession(
     val state: AgentState,
     val summary: String,
     val progress: Float = 0f,
+    val userInput: String = "",
 )
 
 @Composable
 fun AgentCard(
     session: AgentSession,
     onClick: () -> Unit = {},
+    listening: Boolean = false,
+    partialText: String = "",
+    onMicDown: () -> Unit = {},
+    onMicUp: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val meta = stateMeta(session.state)
@@ -77,55 +89,188 @@ fun AgentCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
     ) {
-        Column(Modifier.fillMaxHeight().padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(meta.avatarBg),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        meta.icon,
-                        contentDescription = session.provider,
-                        tint = meta.avatarIcon,
-                        modifier = Modifier.size(22.dp),
-                    )
+        Box(Modifier.fillMaxHeight()) {
+            Column(Modifier.fillMaxHeight().padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(meta.avatarBg),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            meta.icon,
+                            contentDescription = session.provider,
+                            tint = meta.avatarIcon,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            session.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            "${session.provider}/${session.model}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    StateChip(session.state, meta)
                 }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        session.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "${session.provider}/${session.model}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                StateChip(session.state, meta)
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                session.summary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.weight(1f))
-            if (session.state == AgentState.Running) {
-                LinearProgressIndicator(
-                    progress = { session.progress },
-                    modifier = Modifier.fillMaxWidth(),
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    session.summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(8.dp))
+                if (listening) {
+                    ListeningLine(partialText)
+                } else if (session.userInput.isNotBlank()) {
+                    TranscriptBubble(session.userInput)
+                }
+                Spacer(Modifier.weight(1f))
+                if (session.state == AgentState.Running) {
+                    LinearProgressIndicator(
+                        progress = { session.progress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
+            MicButton(
+                listening = listening,
+                onMicDown = onMicDown,
+                onMicUp = onMicUp,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+            )
         }
+    }
+}
+
+@Composable
+private fun MicButton(
+    listening: Boolean,
+    onMicDown: () -> Unit,
+    onMicUp: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    val pulseScale = if (listening) {
+        rememberInfiniteTransition(label = "mic-scale-t").animateFloat(
+            initialValue = 1f,
+            targetValue = 1.18f,
+            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+            label = "mic-scale",
+        ).value
+    } else {
+        1f
+    }
+    val ringAlpha = if (listening) {
+        rememberInfiniteTransition(label = "mic-ring-t").animateFloat(
+            initialValue = 0.85f,
+            targetValue = 0.25f,
+            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+            label = "mic-ring",
+        ).value
+    } else {
+        0f
+    }
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .graphicsLayer {
+                scaleX = pulseScale
+                scaleY = pulseScale
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        onMicDown()
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            onMicUp()
+                        }
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (listening) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(R1Orange.copy(alpha = ringAlpha)),
+            )
+        }
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(if (listening) R1Orange else cs.primary),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (listening) Icons.Filled.Mic else Icons.Outlined.Mic,
+                contentDescription = "Hold to talk",
+                tint = if (listening) Color.White else cs.onPrimary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ListeningLine(partialText: String) {
+    val dotAlpha = rememberInfiniteTransition(label = "listen-t").animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
+        label = "listen-dot",
+    ).value
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(R1Orange.copy(alpha = dotAlpha)),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            if (partialText.isBlank()) "Listening\u2026" else partialText,
+            style = MaterialTheme.typography.bodySmall,
+            color = R1Orange,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun TranscriptBubble(text: String) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        color = cs.primaryContainer,
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Text(
+            text,
+            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = cs.onPrimaryContainer,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -225,7 +370,7 @@ private fun stateMeta(state: AgentState): StateMeta {
     }
 }
 
-@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 — six states (light)")
+@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 six states (light)")
 @Composable
 private fun AgentCardStatesPreview() {
     PaseoTheme(darkTheme = false) {
@@ -243,7 +388,7 @@ private fun AgentCardStatesPreview() {
     }
 }
 
-@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 — six states (dark)")
+@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 six states (dark)")
 @Composable
 private fun AgentCardStatesDarkPreview() {
     PaseoTheme(darkTheme = true) {

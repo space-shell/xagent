@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -76,7 +77,7 @@ fun AgentCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.fillMaxHeight().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier
@@ -117,8 +118,8 @@ fun AgentCard(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.weight(1f))
             if (session.state == AgentState.Running) {
-                Spacer(Modifier.height(12.dp))
                 LinearProgressIndicator(
                     progress = { session.progress },
                     modifier = Modifier.fillMaxWidth(),

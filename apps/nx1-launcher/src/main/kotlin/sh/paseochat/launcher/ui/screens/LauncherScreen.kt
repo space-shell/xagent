@@ -2,15 +2,17 @@ package sh.paseochat.launcher.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.PageSize
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -38,14 +40,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlin.math.absoluteValue
 import kotlinx.coroutines.launch
 import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.ui.components.AgentSession
 import sh.paseochat.launcher.ui.components.AgentState
 import sh.paseochat.launcher.ui.theme.PaseoTheme
+
+private val DECK_PAGE_HEIGHT = 360.dp
 
 @Composable
 fun LauncherScreen() {
@@ -62,10 +68,19 @@ fun LauncherScreen() {
         return
     }
 
+    val pagerState = rememberPagerState(pageCount = { sessions.size })
+
     val onDismiss: (AgentSession) -> Unit = { session ->
         val idx = sessions.indexOf(session)
+        val wasCurrent = pagerState.currentPage == idx
         sessions.remove(session)
         scope.launch {
+            if (wasCurrent) {
+                val target = (sessions.size - 1).coerceAtLeast(0)
+                if (pagerState.currentPage > target) {
+                    pagerState.scrollToPage(target)
+                }
+            }
             val result = snackbarHostState.showSnackbar(
                 message = "Dismissed \u201C${session.title}\u201D",
                 actionLabel = "Undo",
@@ -81,13 +96,28 @@ fun LauncherScreen() {
         if (sessions.isEmpty()) {
             EmptyState(Modifier.padding(padding))
         } else {
-            LazyColumn(
-                Modifier
-                    .padding(padding)
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(sessions, key = { it.id }) { session ->
+            VerticalPager(
+                state = pagerState,
+                modifier = Modifier.padding(padding),
+                pageSize = PageSize.Fixed(DECK_PAGE_HEIGHT),
+                pageSpacing = 8.dp,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                beyondViewportPageCount = 1,
+                key = { sessions[it].id },
+            ) { pageIndex ->
+                val session = sessions[pageIndex]
+                val pageOff = ((pagerState.currentPage - pageIndex) +
+                    pagerState.currentPageOffsetFraction).absoluteValue
+                val t = pageOff.coerceIn(0f, 1f)
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = 1f - 0.06f * t
+                            scaleY = 1f - 0.06f * t
+                            alpha = 1f - 0.15f * t
+                        },
+                ) {
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = { it != SwipeToDismissBoxValue.Settled }
                     )
@@ -102,9 +132,14 @@ fun LauncherScreen() {
                     }
                     SwipeToDismissBox(
                         state = dismissState,
+                        modifier = Modifier.fillMaxSize(),
                         backgroundContent = { DismissBackground() },
                     ) {
-                        AgentCard(session, onClick = { detailId = session.id })
+                        AgentCard(
+                            session,
+                            onClick = { detailId = session.id },
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                 }
             }
@@ -185,9 +220,9 @@ private fun AgentDetail(session: AgentSession) {
     }
 }
 
-@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 stack")
+@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 deck")
 @Composable
-private fun LauncherStackPreview() {
+private fun LauncherDeckPreview() {
     PaseoTheme(darkTheme = false) { LauncherScreen() }
 }
 

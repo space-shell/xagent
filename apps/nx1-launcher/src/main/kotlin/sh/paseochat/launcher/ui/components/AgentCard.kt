@@ -71,6 +71,9 @@ data class AgentSession(
 )
 
 @Composable
+fun stateDotColor(state: AgentState): Color = stateMeta(state).chipBg
+
+@Composable
 fun AgentCard(
     session: AgentSession,
     onClick: () -> Unit = {},
@@ -89,68 +92,69 @@ fun AgentCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
     ) {
-        Box(Modifier.fillMaxHeight()) {
-            Column(Modifier.fillMaxHeight().padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(meta.avatarBg),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            meta.icon,
-                            contentDescription = session.provider,
-                            tint = meta.avatarIcon,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            session.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            "${session.provider}/${session.model}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    StateChip(session.state, meta)
+        Column(Modifier.fillMaxHeight().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(meta.avatarBg),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        meta.icon,
+                        contentDescription = session.provider,
+                        tint = meta.avatarIcon,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    session.summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(8.dp))
-                if (listening) {
-                    ListeningLine(partialText)
-                } else if (session.userInput.isNotBlank()) {
-                    TranscriptBubble(session.userInput)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        session.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "${session.provider}/${session.model}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Spacer(Modifier.weight(1f))
+                StateChip(session.state, meta)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                session.summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(8.dp))
+            if (listening) {
+                ListeningLine(partialText)
+            } else if (session.userInput.isNotBlank()) {
+                TranscriptBubble(session.userInput)
+            }
+            Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.Bottom) {
                 if (session.state == AgentState.Running) {
                     LinearProgressIndicator(
                         progress = { session.progress },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.weight(1f).padding(end = 12.dp),
                     )
+                } else {
+                    Spacer(Modifier.weight(1f))
                 }
+                MicButton(
+                    listening = listening,
+                    onMicDown = onMicDown,
+                    onMicUp = onMicUp,
+                )
             }
-            MicButton(
-                listening = listening,
-                onMicDown = onMicDown,
-                onMicUp = onMicUp,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
-            )
         }
     }
 }

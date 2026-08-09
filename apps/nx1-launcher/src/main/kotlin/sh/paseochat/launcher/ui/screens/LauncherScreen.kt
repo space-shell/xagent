@@ -2,19 +2,24 @@ package sh.paseochat.launcher.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,8 +46,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -59,13 +64,12 @@ import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.voice.rememberVoiceController
 import sh.paseochat.launcher.ui.components.AgentSession
 import sh.paseochat.launcher.ui.components.AgentState
+import sh.paseochat.launcher.ui.components.stateDotColor
 import sh.paseochat.launcher.ui.theme.PaseoTheme
 
 private val DECK_CARD_HEIGHT = 360.dp
 private val FAN_STEP = 32.dp
 private val BELOW_STEP = 480.dp
-private const val SCALE_PER_RANK = 0.10f
-private const val ALPHA_PER_RANK = 0.25f
 private const val Z_PER_RANK = 0.20f
 
 @Composable
@@ -173,9 +177,7 @@ fun LauncherScreen() {
                     val k = abs(o)
                     val isPeek = o <= 0f
                     val ty = if (isPeek) focusedTop - FAN_STEP * k else focusedTop + BELOW_STEP * o
-                    val cardScale = if (isPeek) 1f - SCALE_PER_RANK * k else 1f
-                    val cardAlpha =
-                        if (isPeek) (1f - ALPHA_PER_RANK * k).coerceIn(0f, 1f) else 1f
+                    val cardAlpha = if (isPeek) (4f + o).coerceIn(0f, 1f) else 1f
                     val z =
                         if (isPeek) 1f - Z_PER_RANK * k else (1f - 0.5f * o).coerceIn(0f, 1f)
 
@@ -188,10 +190,7 @@ fun LauncherScreen() {
                                 .graphicsLayer {
                                     val naturalY = o * viewportHeight.toPx()
                                     translationY = ty.toPx() - naturalY
-                                    scaleX = cardScale
-                                    scaleY = cardScale
                                     alpha = cardAlpha
-                                    transformOrigin = TransformOrigin(0.5f, 0f)
                                 },
                         ) {
                             val dismissState = rememberSwipeToDismissBoxState(
@@ -235,6 +234,49 @@ fun LauncherScreen() {
                         }
                     }
                 }
+
+                StatusRail(
+                    sessions = sessions,
+                    currentIndex = pagerState.currentPage,
+                    onTap = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 6.dp)
+                        .fillMaxHeight(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusRail(
+    sessions: List<AgentSession>,
+    currentIndex: Int,
+    onTap: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        sessions.forEachIndexed { index, session ->
+            val focused = index == currentIndex
+            val color = stateDotColor(session.state)
+            val shape = if (focused) RoundedCornerShape(50) else CircleShape
+            Box(
+                modifier = Modifier
+                    .pointerInput(index) { detectTapGestures { onTap(index) } }
+                    .width(24.dp)
+                    .height(28.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .width(8.dp)
+                        .height(if (focused) 24.dp else 8.dp)
+                        .background(color, shape),
+                )
             }
         }
     }

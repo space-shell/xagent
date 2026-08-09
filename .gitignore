@@ -15,3 +15,6 @@ captures/
 result
 result-*
 .direnv/
+
+# Kotlin daemon
+.kotlin/

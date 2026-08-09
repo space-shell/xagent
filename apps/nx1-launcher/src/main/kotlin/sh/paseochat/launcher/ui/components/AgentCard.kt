@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -29,10 +30,11 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PauseCircleOutline
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,14 +44,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import sh.paseochat.launcher.ui.rememberHaptics
 import sh.paseochat.launcher.ui.theme.DoneContainerDark
 import sh.paseochat.launcher.ui.theme.DoneContainerLight
 import sh.paseochat.launcher.ui.theme.OnDoneDark
@@ -58,6 +63,7 @@ import sh.paseochat.launcher.ui.theme.PaseoTheme
 import sh.paseochat.launcher.ui.theme.R1Orange
 
 enum class AgentState { Idle, Queued, Running, AwaitingInput, Done, Error }
+enum class AgentMode { Plan, Build }
 
 data class AgentSession(
     val id: String,
@@ -66,94 +72,101 @@ data class AgentSession(
     val model: String,
     val state: AgentState,
     val summary: String,
-    val progress: Float = 0f,
     val userInput: String = "",
+    val mode: AgentMode = AgentMode.Build,
 )
 
 @Composable
-fun stateDotColor(state: AgentState): Color = stateMeta(state).chipBg
+fun stateDotColor(state: AgentState): Color = stateMeta(state).containerColor
 
 @Composable
 fun AgentCard(
     session: AgentSession,
-    onClick: () -> Unit = {},
     listening: Boolean = false,
     partialText: String = "",
     onMicDown: () -> Unit = {},
     onMicUp: () -> Unit = {},
+    onCycleMode: () -> Unit = {},
+    onApprove: () -> Unit = {},
+    onDeny: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val meta = stateMeta(session.state)
+    val haptics = rememberHaptics()
+
     Card(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onLongPress = {
+                        haptics.longPress()
+                        onCycleMode()
+                    },
+                )
+            },
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        ),
+        colors = CardDefaults.cardColors(containerColor = meta.containerColor),
     ) {
-        Column(Modifier.fillMaxHeight().padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(meta.avatarBg),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        meta.icon,
-                        contentDescription = session.provider,
-                        tint = meta.avatarIcon,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        session.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "${session.provider}/${session.model}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                StateChip(session.state, meta)
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                session.summary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
+        Box(Modifier.fillMaxHeight()) {
+            Image(
+                imageVector = meta.icon,
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(meta.onContainerColor),
+                contentScale = ContentScale.Crop,
+                alpha = 0.07f,
+                modifier = Modifier.fillMaxSize(),
             )
-            Spacer(Modifier.height(8.dp))
-            if (listening) {
-                ListeningLine(partialText)
-            } else if (session.userInput.isNotBlank()) {
-                TranscriptBubble(session.userInput)
-            }
-            Spacer(Modifier.weight(1f))
-            Row(verticalAlignment = Alignment.Bottom) {
-                if (session.state == AgentState.Running) {
-                    LinearProgressIndicator(
-                        progress = { session.progress },
-                        modifier = Modifier.weight(1f).padding(end = 12.dp),
+            Column(
+                Modifier
+                    .fillMaxHeight()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    session.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = meta.onContainerColor,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${session.provider}/${session.model} · ${session.mode.name.lowercase()}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = meta.onContainerColor.copy(alpha = 0.7f),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    session.summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = meta.onContainerColor,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+                if (listening) {
+                    ListeningLine(partialText)
+                } else if (session.userInput.isNotBlank()) {
+                    TranscriptBubble(session.userInput, meta.onContainerColor)
+                }
+                Spacer(Modifier.weight(1f))
+                if (session.state == AgentState.AwaitingInput) {
+                    ApprovalBar(
+                        onApprove = { haptics.confirm(); onApprove() },
+                        onDeny = { haptics.reject(); onDeny() },
                     )
                 } else {
-                    Spacer(Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        MicButton(
+                            listening = listening,
+                            onMicDown = { haptics.tick(); onMicDown() },
+                            onMicUp = onMicUp,
+                        )
+                    }
                 }
-                MicButton(
-                    listening = listening,
-                    onMicDown = onMicDown,
-                    onMicUp = onMicUp,
-                )
             }
         }
     }
@@ -261,17 +274,16 @@ private fun ListeningLine(partialText: String) {
 }
 
 @Composable
-private fun TranscriptBubble(text: String) {
-    val cs = MaterialTheme.colorScheme
+private fun TranscriptBubble(text: String, textColor: Color) {
     Surface(
-        color = cs.primaryContainer,
+        color = textColor.copy(alpha = 0.12f),
         shape = RoundedCornerShape(12.dp),
     ) {
         Text(
             text,
             Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall,
-            color = cs.onPrimaryContainer,
+            color = textColor,
             maxLines = 4,
             overflow = TextOverflow.Ellipsis,
         )
@@ -279,43 +291,43 @@ private fun TranscriptBubble(text: String) {
 }
 
 @Composable
-private fun StateChip(state: AgentState, meta: StateMeta) {
-    val pulseAlpha = if (state == AgentState.AwaitingInput) {
-        val transition = rememberInfiniteTransition(label = "awaiting-pulse")
-        transition.animateFloat(
-            initialValue = 1f,
-            targetValue = 0.45f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(900),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "awaiting-alpha",
-        ).value
-    } else {
-        1f
-    }
-    Surface(
-        modifier = Modifier.alpha(pulseAlpha),
-        color = meta.chipBg,
-        shape = RoundedCornerShape(50),
+private fun ApprovalBar(
+    onApprove: () -> Unit,
+    onDeny: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            meta.label,
-            Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = meta.chipText,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Button(
+            onClick = onApprove,
+            modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = cs.primary,
+                contentColor = cs.onPrimary,
+            ),
+        ) {
+            Text("Allow", fontWeight = FontWeight.SemiBold)
+        }
+        Button(
+            onClick = onDeny,
+            modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = cs.error,
+                contentColor = cs.onError,
+            ),
+        ) {
+            Text("Deny", fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
 private data class StateMeta(
-    val label: String,
     val icon: ImageVector,
-    val avatarBg: Color,
-    val avatarIcon: Color,
-    val chipBg: Color,
-    val chipText: Color,
+    val containerColor: Color,
+    val onContainerColor: Color,
 )
 
 @Composable
@@ -324,52 +336,34 @@ private fun stateMeta(state: AgentState): StateMeta {
     val dark = cs.surface.luminance() < 0.5f
     return when (state) {
         AgentState.Idle -> StateMeta(
-            label = "idle",
             icon = Icons.Outlined.HourglassEmpty,
-            avatarBg = cs.surfaceVariant,
-            avatarIcon = cs.onSurfaceVariant,
-            chipBg = cs.surfaceVariant,
-            chipText = cs.onSurfaceVariant,
+            containerColor = cs.surfaceVariant,
+            onContainerColor = cs.onSurfaceVariant,
         )
         AgentState.Queued -> StateMeta(
-            label = "queued",
             icon = Icons.Outlined.HourglassEmpty,
-            avatarBg = cs.tertiaryContainer,
-            avatarIcon = cs.onTertiaryContainer,
-            chipBg = cs.tertiaryContainer,
-            chipText = cs.onTertiaryContainer,
+            containerColor = cs.tertiaryContainer,
+            onContainerColor = cs.onTertiaryContainer,
         )
         AgentState.Running -> StateMeta(
-            label = "running",
             icon = Icons.Outlined.Bolt,
-            avatarBg = cs.primaryContainer,
-            avatarIcon = cs.onPrimaryContainer,
-            chipBg = cs.primaryContainer,
-            chipText = cs.onPrimaryContainer,
+            containerColor = cs.primaryContainer,
+            onContainerColor = cs.onPrimaryContainer,
         )
         AgentState.AwaitingInput -> StateMeta(
-            label = "waiting",
             icon = Icons.Outlined.PauseCircleOutline,
-            avatarBg = cs.secondaryContainer,
-            avatarIcon = cs.onSecondaryContainer,
-            chipBg = cs.secondaryContainer,
-            chipText = cs.onSecondaryContainer,
+            containerColor = cs.secondaryContainer,
+            onContainerColor = cs.onSecondaryContainer,
         )
         AgentState.Done -> StateMeta(
-            label = "done",
             icon = Icons.Outlined.CheckCircle,
-            avatarBg = if (dark) DoneContainerDark else DoneContainerLight,
-            avatarIcon = if (dark) OnDoneDark else OnDoneLight,
-            chipBg = if (dark) DoneContainerDark else DoneContainerLight,
-            chipText = if (dark) OnDoneDark else OnDoneLight,
+            containerColor = if (dark) DoneContainerDark else DoneContainerLight,
+            onContainerColor = if (dark) OnDoneDark else OnDoneLight,
         )
         AgentState.Error -> StateMeta(
-            label = "error",
             icon = Icons.Outlined.ErrorOutline,
-            avatarBg = cs.errorContainer,
-            avatarIcon = cs.onErrorContainer,
-            chipBg = cs.errorContainer,
-            chipText = cs.onErrorContainer,
+            containerColor = cs.errorContainer,
+            onContainerColor = cs.onErrorContainer,
         )
     }
 }
@@ -382,10 +376,10 @@ private fun AgentCardStatesPreview() {
             Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AgentCard(sample(AgentState.Running, progress = 0.62f))
+            AgentCard(sample(AgentState.Running))
             AgentCard(sample(AgentState.AwaitingInput))
             AgentCard(sample(AgentState.Done))
-            AgentCard(sample(AgentState.Error))
+            AgentCard(sample(AgentState.Error, mode = AgentMode.Plan))
             AgentCard(sample(AgentState.Queued))
             AgentCard(sample(AgentState.Idle))
         }
@@ -400,10 +394,10 @@ private fun AgentCardStatesDarkPreview() {
             Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AgentCard(sample(AgentState.Running, progress = 0.3f))
+            AgentCard(sample(AgentState.Running))
             AgentCard(sample(AgentState.AwaitingInput))
             AgentCard(sample(AgentState.Done))
-            AgentCard(sample(AgentState.Error))
+            AgentCard(sample(AgentState.Error, mode = AgentMode.Plan))
             AgentCard(sample(AgentState.Queued))
             AgentCard(sample(AgentState.Idle))
         }
@@ -412,7 +406,7 @@ private fun AgentCardStatesDarkPreview() {
 
 private fun sample(
     state: AgentState,
-    progress: Float = 0f,
+    mode: AgentMode = AgentMode.Build,
 ): AgentSession = AgentSession(
     id = state.name,
     title = "Refactor auth module",
@@ -420,5 +414,5 @@ private fun sample(
     model = "opus-4.6",
     state = state,
     summary = "Splitting the monolithic AuthController into per-concern files and adding tests for the token-refresh edge case.",
-    progress = progress,
+    mode = mode,
 )

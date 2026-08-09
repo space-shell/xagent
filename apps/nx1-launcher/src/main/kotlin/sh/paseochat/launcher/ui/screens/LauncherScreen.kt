@@ -1,6 +1,5 @@
 package sh.paseochat.launcher.ui.screens
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -8,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,10 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -39,7 +35,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -54,6 +49,7 @@ import androidx.core.content.ContextCompat
 import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.voice.rememberVoiceController
 import sh.paseochat.launcher.ui.components.AgentSession
+import sh.paseochat.launcher.ui.components.AgentMode
 import sh.paseochat.launcher.ui.components.AgentState
 import sh.paseochat.launcher.ui.components.stateDotColor
 import sh.paseochat.launcher.ui.theme.PaseoTheme
@@ -66,7 +62,6 @@ private const val Z_PER_RANK = 0.20f
 @Composable
 fun LauncherScreen() {
     val sessions = remember { mutableStateListOf(*stubSessions().toTypedArray()) }
-    var detailId by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -116,14 +111,6 @@ fun LauncherScreen() {
         }
     }
 
-    val detail = detailId?.let { id -> sessions.firstOrNull { it.id == id } }
-    BackHandler(enabled = detail != null) { detailId = null }
-
-    if (detail != null) {
-        AgentDetail(detail)
-        return
-    }
-
     val pagerState = rememberPagerState(pageCount = { sessions.size })
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
@@ -164,7 +151,6 @@ fun LauncherScreen() {
                         ) {
                             AgentCard(
                                 session,
-                                onClick = { detailId = session.id },
                                 listening = listeningId == session.id,
                                 partialText = if (listeningId == session.id) voice.partialText else "",
                                 onMicDown = {
@@ -179,6 +165,29 @@ fun LauncherScreen() {
                                 },
                                 onMicUp = {
                                     if (listeningId == session.id) voice.stop()
+                                },
+                                onCycleMode = {
+                                    val idx = sessions.indexOfFirst { it.id == session.id }
+                                    if (idx >= 0) {
+                                        val newMode = if (sessions[idx].mode == AgentMode.Plan)
+                                            AgentMode.Build else AgentMode.Plan
+                                        sessions[idx] = sessions[idx].copy(mode = newMode)
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("${newMode.name.lowercase()} mode")
+                                        }
+                                    }
+                                },
+                                onApprove = {
+                                    val idx = sessions.indexOfFirst { it.id == session.id }
+                                    if (idx >= 0) {
+                                        sessions[idx] = sessions[idx].copy(state = AgentState.Running)
+                                    }
+                                },
+                                onDeny = {
+                                    val idx = sessions.indexOfFirst { it.id == session.id }
+                                    if (idx >= 0) {
+                                        sessions[idx] = sessions[idx].copy(state = AgentState.Idle)
+                                    }
                                 },
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -244,50 +253,6 @@ private fun EmptyState(modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
-private fun AgentDetail(session: AgentSession) {
-    Scaffold { padding ->
-        Column(
-            Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-        ) {
-            Text(
-                session.title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "${session.provider}/${session.model}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "state: ${session.state.name}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(session.summary, style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(24.dp))
-            Text(
-                "Live stream will appear here.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                "(stub \u2014 wired in L4)",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
 @Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 roller deck")
 @Composable
 private fun LauncherDeckPreview() {
@@ -296,23 +261,25 @@ private fun LauncherDeckPreview() {
 
 private fun stubSessions(): List<AgentSession> = listOf(
     AgentSession("1", "Refactor auth module", "claude", "opus-4.6", AgentState.Running,
-        "Splitting AuthController into per-concern files; adding tests for token-refresh.", 0.62f),
+        "Splitting AuthController into per-concern files; adding tests for token-refresh."),
     AgentSession("2", "Add retry on 429", "codex", "gpt-5.4", AgentState.AwaitingInput,
-        "Which backoff ceiling do you want \u2014 30s or 120s?"),
+        "Wants to run `npm install` in /repo to add the retry dependency."),
     AgentSession("3", "Generate fixtures", "opencode", "glm-5.2", AgentState.Done,
         "Wrote 40 fixtures into tests/fixtures/ and updated the snapshot index."),
     AgentSession("4", "Bump deps + renovate", "codex", "gpt-5.4", AgentState.Queued,
         "Waiting for a free slot \u2014 one agent is already running on this provider."),
     AgentSession("5", "Triage CI failures", "copilot", "gpt-5", AgentState.Error,
-        "Exited 1 after 42s: could not resolve host github.com (network was blocked)."),
+        "Exited 1 after 42s: could not resolve host github.com (network was blocked).",
+        mode = AgentMode.Plan),
     AgentSession("6", "New session", "claude", "opus-4.6", AgentState.Idle,
         "Agent ready. Hold the button to give it a task."),
     AgentSession("7", "Migrate to flake-parts", "claude", "opus-4.6", AgentState.Running,
-        "Converting the devshell to flake-parts modules; verifying nix develop.", 0.28f),
+        "Converting the devshell to flake-parts modules; verifying nix develop.",
+        mode = AgentMode.Plan),
     AgentSession("8", "Write migration guide", "opencode", "glm-5.2", AgentState.Done,
         "Drafted docs/migrate.md covering the move and rollback steps."),
     AgentSession("9", "Fix off-by-one in pager", "codex", "gpt-5.4", AgentState.AwaitingInput,
-        "Should the last card snap, or loop back to the first?"),
+        "Wants to overwrite src/config.ts with the corrected page count."),
     AgentSession("10", "Seed test DB", "copilot", "gpt-5", AgentState.Queued,
         "Queued behind the auth refactor; starts when CPU frees up."),
 )

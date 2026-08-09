@@ -107,14 +107,18 @@ is running / waiting / failed / done?" Capture `docs/user-tests/L1-card-primitiv
 **Exit** — states read to a non-dev; any redesigns folded into `card-model.md`.
 
 ### L2 — Card stack & navigation
-**Goal:** the vertical stack (the r1 scroll model) + swipe/quick-switch + empty state.
+**Goal:** the roller deck (r1 scroll model) + swipe/quick-switch + empty state.
 **Build tasks**
-- [x] `LazyColumn` stack, newest-on-top, stable keys, swipe-to-dismiss (with undo).
+- [x] Roller deck (`VerticalPager`, `pageSize=Fill`, per-page transform) — focused
+      card centred; up to three previous cards fan out above; next slides up on
+      swipe. `getOffsetDistanceInPages` drives all transforms continuously.
+- [x] Swipe-to-dismiss with undo (Snackbar); stable keys (session id).
 - [x] Back gesture collapses detail; tap expands (detail stub for now).
-- [x] Empty state: centered "Hold the button to start."
+- [x] Empty state: centred "Hold the button to start."
 - [x] Thumb-reach audit (primary affordance in bottom 60%).
-      (no primary affordance yet — PTT is L3; undo Snackbar sits bottom, empty
-      prompt centered. Audit note in `docs/user-tests/L2-stack.md`.)
+      (no primary affordance yet — PTT is L3; the focused card is centred, leaving
+      the bottom ~112 dp free — the natural PTT seat. Audit note in
+      `docs/user-tests/L2-stack.md`.)
 **Stories** — `US-L2-1` As Sam, I want to scroll through my agents like the r1
 wheel, so navigation is muscle-memory. `US-L2-2` As Sam, I want to dismiss a
 finished card with a swipe, so the stack stays relevant. `US-L2-3` As Sam, I want

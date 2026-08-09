@@ -74,18 +74,19 @@ dismissed by swipe (L2) or archived.
 
 ## 3. The stack — navigation model
 
-- A **single-axis deck** (`VerticalPager`): one **focused** card fills the top
-  ~62 % of the canvas (~360 dp on the NX1), with the **next** card peeking
-  below it. Previous cards are not shown at rest — the deck looks forward, not
-  back (mirrors the r1 deck, not a flat list).
+- A **roller deck** (`VerticalPager`, `pageSize = Fill`): the **focused** card sits
+  ~centred (~360 dp, ~62 % of canvas); up to **three previous cards fan out above
+  it**, each recessed (scale, alpha, lower z) so only their top edges peek. The
+  next card rests off-screen below and slides up into focus on swipe.
+- Motion is **upward**: swiping forward moves every card up — the current card
+  lifts into the peek fan, the next rises from below into focus. This mirrors a
+  physical rolodex/roller, not a flat list.
 - The r1 **scroll wheel** maps to **vertical swipe** on the NX1 (same gesture,
   different input — this is the direct analogue and must feel equivalent).
-- Neighbouring cards recede via a `graphicsLayer` transform (scale 0.94,
-  alpha 0.85 at offset 1) so depth is read without a second full card.
 - **Tap** a card → expand to its streaming detail (L4).
 - **Back gesture** → collapse to deck.
-- **Swipe** on a card → dismiss/archive (with undo).
-- **Empty state** — a single centered prompt: "Hold the button to start."
+- **Swipe** (horizontal) on a card → dismiss/archive (with undo).
+- **Empty state** — a single centred prompt: "Hold the button to start."
 
 The stack *is* the multi-agent view (the Paseo differentiator). No separate
 "agents" tab — parallelism is shown by multiple cards each streaming.

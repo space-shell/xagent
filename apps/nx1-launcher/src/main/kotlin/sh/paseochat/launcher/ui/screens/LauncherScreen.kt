@@ -3,6 +3,7 @@ package sh.paseochat.launcher.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -31,28 +32,34 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import kotlin.math.absoluteValue
+import kotlin.math.abs
 import kotlinx.coroutines.launch
 import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.ui.components.AgentSession
 import sh.paseochat.launcher.ui.components.AgentState
 import sh.paseochat.launcher.ui.theme.PaseoTheme
 
-private val DECK_PAGE_HEIGHT = 360.dp
+private val DECK_CARD_HEIGHT = 360.dp
+private val FAN_STEP = 32.dp
+private val BELOW_STEP = 480.dp
+private const val SCALE_PER_RANK = 0.10f
+private const val ALPHA_PER_RANK = 0.25f
+private const val Z_PER_RANK = 0.20f
 
 @Composable
 fun LauncherScreen() {
@@ -97,51 +104,65 @@ fun LauncherScreen() {
         if (sessions.isEmpty()) {
             EmptyState(Modifier.padding(padding))
         } else {
-            VerticalPager(
-                state = pagerState,
-                modifier = Modifier.padding(padding),
-                pageSize = PageSize.Fixed(DECK_PAGE_HEIGHT),
-                pageSpacing = (-48).dp,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                beyondViewportPageCount = 1,
-                key = { sessions[it].id },
-            ) { pageIndex ->
-                val session = sessions[pageIndex]
-                val pageOff = ((pagerState.currentPage - pageIndex) +
-                    pagerState.currentPageOffsetFraction).absoluteValue
-                val t = pageOff.coerceIn(0f, 1f)
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .zIndex(if (pageIndex == pagerState.currentPage) 1f else 0f)
-                        .graphicsLayer {
-                            scaleX = 1f - 0.06f * t
-                            scaleY = 1f - 0.06f * t
-                            alpha = 1f - 0.15f * t
-                        },
-                ) {
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { it != SwipeToDismissBoxValue.Settled }
-                    )
-                    val dismissed = remember { mutableStateOf(false) }
-                    LaunchedEffect(dismissState.currentValue) {
-                        if (!dismissed.value &&
-                            dismissState.currentValue != SwipeToDismissBoxValue.Settled
+            BoxWithConstraints(modifier = Modifier.padding(padding)) {
+                val focusedTop = (maxHeight - DECK_CARD_HEIGHT) / 2f
+                VerticalPager(
+                    state = pagerState,
+                    pageSize = PageSize.Fill,
+                    pageSpacing = 0.dp,
+                    contentPadding = PaddingValues(0.dp),
+                    beyondViewportPageCount = 3,
+                    key = { sessions[it].id },
+                ) { pageIndex ->
+                    val session = sessions[pageIndex]
+                    val o = pagerState.getOffsetDistanceInPages(pageIndex)
+                    val k = abs(o)
+                    val isPeek = o <= 0f
+                    val ty = if (isPeek) focusedTop - FAN_STEP * k else focusedTop + BELOW_STEP * o
+                    val cardScale = if (isPeek) 1f - SCALE_PER_RANK * k else 1f
+                    val cardAlpha =
+                        if (isPeek) (1f - ALPHA_PER_RANK * k).coerceIn(0f, 1f) else 1f
+                    val z =
+                        if (isPeek) 1f - Z_PER_RANK * k else (1f - 0.5f * o).coerceIn(0f, 1f)
+
+                    Box(Modifier.fillMaxSize().zIndex(z)) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(DECK_CARD_HEIGHT)
+                                .padding(horizontal = 16.dp)
+                                .graphicsLayer {
+                                    translationY = ty.toPx()
+                                    scaleX = cardScale
+                                    scaleY = cardScale
+                                    alpha = cardAlpha
+                                    transformOrigin = TransformOrigin(0.5f, 0f)
+                                },
                         ) {
-                            dismissed.value = true
-                            onDismiss(session)
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = { it != SwipeToDismissBoxValue.Settled }
+                            )
+                            val dismissed = remember { mutableStateOf(false) }
+                            LaunchedEffect(dismissState.currentValue) {
+                                if (!dismissed.value &&
+                                    dismissState.currentValue != SwipeToDismissBoxValue.Settled
+                                ) {
+                                    dismissed.value = true
+                                    onDismiss(session)
+                                }
+                            }
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                modifier = Modifier.fillMaxSize(),
+                                backgroundContent = { DismissBackground() },
+                            ) {
+                                AgentCard(
+                                    session,
+                                    onClick = { detailId = session.id },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                         }
-                    }
-                    SwipeToDismissBox(
-                        state = dismissState,
-                        modifier = Modifier.fillMaxSize(),
-                        backgroundContent = { DismissBackground() },
-                    ) {
-                        AgentCard(
-                            session,
-                            onClick = { detailId = session.id },
-                            modifier = Modifier.fillMaxSize(),
-                        )
                     }
                 }
             }
@@ -222,7 +243,7 @@ private fun AgentDetail(session: AgentSession) {
     }
 }
 
-@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 deck")
+@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 roller deck")
 @Composable
 private fun LauncherDeckPreview() {
     PaseoTheme(darkTheme = false) { LauncherScreen() }

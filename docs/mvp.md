@@ -92,7 +92,9 @@ Spec: `card-model.md` §2.
       (card tap target >48dp; body maxLines=3; StateChip now uses Material3
       `*Container`/`on*Container` pairs for AA; Done recoloured success-green
       ~6:1 — see card-model.md §7.)
-- [ ] Non-dev walkthrough of the six states (do they read without a legend?).
+- [x] Non-dev walkthrough of the six states (do they read without a legend?).
+      (2026-08-09: passed — six states distinguishable, no confusion reported.
+      See `docs/user-tests/L1-card-primitive.md`.)
 **Stories** — `US-L1-1` As Sam, I want each card to tell me at a glance *which*
 agent, *what* it's doing, and *what state* it's in. `US-L1-2` As Sam, I want the
 six states to be visually distinct without reading text.

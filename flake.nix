@@ -1,5 +1,5 @@
 {
-  description = "paseo-chat — r1-style Paseo launcher for the Bluefox NX1";
+  description = "xagent — r1-style Paseo launcher for the Bluefox NX1";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.flake-utils.url = "github:numtide/flake-utils";

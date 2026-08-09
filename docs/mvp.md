@@ -1,4 +1,4 @@
-# MVP Plan — paseo-chat (UI-first)
+# MVP Plan — xagent (UI-first)
 
 A Rabbit-r1-style launcher on the Bluefox NX1 that orchestrates Paseo coding
 agents running on a host machine.

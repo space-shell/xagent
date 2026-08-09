@@ -32,7 +32,7 @@ surface until the NX1 arrives.
 **rabbitOS card** = an *ephemeral result* (a transit time, a song, a one-shot
 answer). Produced, consumed, scrolled away.
 
-**paseo-chat card** = an **agent session** — long-lived, stateful, streaming.
+**xagent card** = an **agent session** — long-lived, stateful, streaming.
 Created when a task starts, mutated as it runs, persistent in the stack after it
 finishes. This is the core divergence and the thing L1 tests.
 

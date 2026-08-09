@@ -1,7 +1,8 @@
-# paseo-chat
+# xagent
 
 A Rabbit-r1-style launcher for the **Bluefox NX1** (4" Android 15) that drives
-**Paseo** coding-agent orchestration running on a host machine.
+**Paseo** coding-agent orchestration running on a host machine. (The app is
+called **xagent**; **Paseo** is the daemon it talks to.)
 
 The NX1 is a thin control surface (voice + touch). The Paseo daemon — which
 actually runs the agents (Claude Code, Codex, OpenCode, Copilot, Pi) — lives on

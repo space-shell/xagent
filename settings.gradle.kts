@@ -13,6 +13,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "paseo-chat"
+rootProject.name = "xagent"
 include(":app")
 project(":app").projectDir = file("apps/nx1-launcher")

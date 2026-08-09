@@ -124,6 +124,21 @@ class PaseoDaemonClient(
         webSocket?.send(json)
     }
 
+    fun sendAgentMessage(agentId: String, text: String) {
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "send_agent_message_request")
+                put("requestId", UUID.randomUUID().toString())
+                put("agentId", agentId)
+                put("text", text)
+            }
+        }
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "sendAgentMessage agentId=$agentId text=${text.take(80)}")
+        webSocket?.send(json)
+    }
+
     private fun doConnect() {
         val host = currentHost ?: return
         val url = "ws://$host/ws"
@@ -213,6 +228,16 @@ class PaseoDaemonClient(
                 val payload = message["payload"]?.jsonObject
                 val error = payload?.get("error")?.jsonPrimitive?.contentOrNull
                 Log.w(TAG, "rpc_error: $error")
+            }
+            "send_agent_message_response" -> {
+                val payload = message["payload"]?.jsonObject
+                val accepted = payload?.get("accepted")?.jsonPrimitive?.contentOrNull
+                val error = payload?.get("error")?.jsonPrimitive?.contentOrNull
+                if (accepted == "false" || error != null) {
+                    Log.w(TAG, "send_agent_message rejected: $error")
+                } else {
+                    Log.d(TAG, "send_agent_message accepted")
+                }
             }
             else -> Log.d(TAG, "session message type=$msgType: ${message.toString().take(200)}")
         }

@@ -102,7 +102,9 @@ fun LauncherScreen() {
 
     fun startListening(sessionId: String) {
         voice.onFinal = { text ->
-            if (!isConnected) {
+            if (isConnected) {
+                daemonClient.sendAgentMessage(sessionId, text)
+            } else {
                 val idx = stubs.indexOfFirst { it.id == sessionId }
                 if (idx >= 0) stubs[idx] = stubs[idx].copy(userInput = text)
             }

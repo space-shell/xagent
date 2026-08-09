@@ -22,12 +22,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
@@ -54,7 +53,6 @@ import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.voice.rememberVoiceController
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
-import sh.paseochat.launcher.model.AgentState
 import sh.paseochat.launcher.ui.components.SettingsCard
 import sh.paseochat.launcher.ui.components.stateDotColor
 import sh.paseochat.launcher.ui.theme.PaseoTheme
@@ -66,7 +64,6 @@ private const val Z_PER_RANK = 0.20f
 
 @Composable
 fun LauncherScreen() {
-    val stubs = remember { mutableStateListOf(*stubSessions().toTypedArray()) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -83,14 +80,16 @@ fun LauncherScreen() {
 
     val daemonClient = remember { PaseoDaemonClient() }
     val connectionState by daemonClient.connectionState.collectAsState()
-    val realAgents by daemonClient.agents.collectAsState()
-    val isConnected = connectionState == ConnectionState.Connected
-    val sessions: List<AgentSession> = if (isConnected) realAgents else stubs
+    val sessions by daemonClient.agents.collectAsState()
     var settingsHost by remember { mutableStateOf("100.127.193.39:6767") }
     var settingsPassword by remember { mutableStateOf("") }
 
     DisposableEffect(daemonClient) {
         onDispose { daemonClient.close() }
+    }
+
+    LaunchedEffect(Unit) {
+        daemonClient.connect(settingsHost, settingsPassword)
     }
 
     LaunchedEffect(Unit) {
@@ -102,12 +101,7 @@ fun LauncherScreen() {
 
     fun startListening(sessionId: String) {
         voice.onFinal = { text ->
-            if (isConnected) {
-                daemonClient.sendAgentMessage(sessionId, text)
-            } else {
-                val idx = stubs.indexOfFirst { it.id == sessionId }
-                if (idx >= 0) stubs[idx] = stubs[idx].copy(userInput = text)
-            }
+            daemonClient.sendAgentMessage(sessionId, text)
             listeningId = null
             voice.reset()
         }
@@ -135,158 +129,119 @@ fun LauncherScreen() {
     val pagerState = rememberPagerState(pageCount = { sessions.size + 1 })
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
-        if (sessions.isEmpty()) {
-            EmptyState(Modifier.padding(padding))
-        } else {
-            BoxWithConstraints(modifier = Modifier.padding(padding)) {
-                val viewportHeight = maxHeight
-                val focusedTop = (viewportHeight - DECK_CARD_HEIGHT) / 2f
-                VerticalPager(
-                    state = pagerState,
-                    pageSize = PageSize.Fill,
-                    pageSpacing = 0.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    beyondViewportPageCount = 3,
-                    key = { if (it < sessions.size) sessions[it].id else "__settings__" },
-                ) { pageIndex ->
-                    val isSettings = pageIndex == sessions.size
-                    val o = pagerState.getOffsetDistanceInPages(pageIndex)
-                    val k = abs(o)
-                    val isPeek = o <= 0f
-                    val ty = if (isPeek) focusedTop - FAN_STEP * k else focusedTop + BELOW_STEP * o
-                    val cardAlpha = if (isPeek) (4f + o).coerceIn(0f, 1f) else 1f
-                    val z =
-                        if (isPeek) 1f - Z_PER_RANK * k else (1f - 0.5f * o).coerceIn(0f, 1f)
+        BoxWithConstraints(modifier = Modifier.padding(padding)) {
+            val viewportHeight = maxHeight
+            val focusedTop = (viewportHeight - DECK_CARD_HEIGHT) / 2f
+            VerticalPager(
+                state = pagerState,
+                pageSize = PageSize.Fill,
+                pageSpacing = 0.dp,
+                contentPadding = PaddingValues(0.dp),
+                beyondViewportPageCount = 3,
+                key = { if (it < sessions.size) sessions[it].id else "__settings__" },
+            ) { pageIndex ->
+                val isSettings = pageIndex == sessions.size
+                val o = pagerState.getOffsetDistanceInPages(pageIndex)
+                val k = abs(o)
+                val isPeek = o <= 0f
+                val ty = if (isPeek) focusedTop - FAN_STEP * k else focusedTop + BELOW_STEP * o
+                val cardAlpha = if (isPeek) (4f + o).coerceIn(0f, 1f) else 1f
+                val z =
+                    if (isPeek) 1f - Z_PER_RANK * k else (1f - 0.5f * o).coerceIn(0f, 1f)
 
-                    Box(Modifier.fillMaxSize().zIndex(z)) {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(DECK_CARD_HEIGHT)
-                                .padding(start = 40.dp, end = 16.dp)
-                                .graphicsLayer {
-                                    val naturalY = o * viewportHeight.toPx()
-                                    translationY = ty.toPx() - naturalY
-                                    alpha = cardAlpha
+                Box(Modifier.fillMaxSize().zIndex(z)) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(DECK_CARD_HEIGHT)
+                            .padding(start = 40.dp, end = 16.dp)
+                            .graphicsLayer {
+                                val naturalY = o * viewportHeight.toPx()
+                                translationY = ty.toPx() - naturalY
+                                alpha = cardAlpha
+                            },
+                    ) {
+                        if (isSettings) {
+                            SettingsCard(
+                                host = settingsHost,
+                                onHostChange = { settingsHost = it },
+                                password = settingsPassword,
+                                onPasswordChange = { settingsPassword = it },
+                                connectionState = connectionState,
+                                onConnect = {
+                                    daemonClient.connect(settingsHost, settingsPassword)
                                 },
-                        ) {
-                            if (isSettings) {
-                                SettingsCard(
-                                    host = settingsHost,
-                                    onHostChange = { settingsHost = it },
-                                    password = settingsPassword,
-                                    onPasswordChange = { settingsPassword = it },
-                                    connectionState = connectionState,
-                                    onConnect = {
-                                        daemonClient.connect(settingsHost, settingsPassword)
-                                    },
-                                    onDisconnect = {
-                                        daemonClient.disconnect()
-                                    },
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            } else {
-                                val session = sessions[pageIndex]
-                                AgentCard(
-                                    session,
-                                    listening = listeningId == session.id,
-                                    partialText = if (listeningId == session.id) voice.partialText else "",
-                                    onMicDown = {
-                                        if (!voice.isListening) {
-                                            if (hasMicPermission) {
-                                                startListening(session.id)
-                                            } else {
-                                                pendingListenId = session.id
-                                                permLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                            }
-                                        }
-                                    },
-                                    onMicUp = {
-                                        if (listeningId == session.id) voice.stop()
-                                    },
-                                    onCycleMode = {
-                                        if (isConnected) {
-                                            val newMode = if (session.mode == AgentMode.Plan) "auto" else "plan"
-                                            daemonClient.setAgentMode(session.id, newMode)
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar(
-                                                    if (newMode == "plan") "plan mode" else "build mode"
-                                                )
-                                            }
+                                onDisconnect = {
+                                    daemonClient.disconnect()
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            val session = sessions[pageIndex]
+                            AgentCard(
+                                session,
+                                listening = listeningId == session.id,
+                                partialText = if (listeningId == session.id) voice.partialText else "",
+                                onMicDown = {
+                                    if (!voice.isListening) {
+                                        if (hasMicPermission) {
+                                            startListening(session.id)
                                         } else {
-                                            val idx = stubs.indexOfFirst { it.id == session.id }
-                                            if (idx >= 0) {
-                                                val newMode = if (stubs[idx].mode == AgentMode.Plan)
-                                                    AgentMode.Build else AgentMode.Plan
-                                                stubs[idx] = stubs[idx].copy(mode = newMode)
-                                                scope.launch {
-                                                    snackbarHostState.showSnackbar("${newMode.name.lowercase()} mode")
-                                                }
-                                            }
+                                            pendingListenId = session.id
+                                            permLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         }
-                                    },
-                                    onApprove = {
-                                        if (isConnected) {
-                                            val permId = session.pendingPermissionId
-                                            if (permId != null) {
-                                                daemonClient.respondToPermission(session.id, permId, allow = true)
-                                            }
-                                        } else {
-                                            val idx = stubs.indexOfFirst { it.id == session.id }
-                                            if (idx >= 0) {
-                                                stubs[idx] = stubs[idx].copy(state = AgentState.Running)
-                                            }
+                                    }
+                                },
+                                onMicUp = {
+                                    if (listeningId == session.id) voice.stop()
+                                },
+                                onCycleMode = {
+                                    val newMode = if (session.mode == AgentMode.Plan) "auto" else "plan"
+                                    daemonClient.setAgentMode(session.id, newMode)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            if (newMode == "plan") "plan mode" else "build mode"
+                                        )
+                                    }
+                                },
+                                onApprove = {
+                                    val permId = session.pendingPermissionId
+                                    if (permId != null) {
+                                        daemonClient.respondToPermission(session.id, permId, allow = true)
+                                    }
+                                },
+                                onApproveAlways = {
+                                    val permId = session.pendingPermissionId
+                                    if (permId != null) {
+                                        daemonClient.respondToPermission(session.id, permId, allow = true)
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Allowed \u2014 future requests still need approval")
                                         }
-                                    },
-                                    onApproveAlways = {
-                                        if (isConnected) {
-                                            val permId = session.pendingPermissionId
-                                            if (permId != null) {
-                                                daemonClient.respondToPermission(session.id, permId, allow = true)
-                                                scope.launch {
-                                                    snackbarHostState.showSnackbar("Allowed \u2014 future requests still need approval")
-                                                }
-                                            }
-                                        } else {
-                                            val idx = stubs.indexOfFirst { it.id == session.id }
-                                            if (idx >= 0) {
-                                                stubs[idx] = stubs[idx].copy(state = AgentState.Running)
-                                                scope.launch {
-                                                    snackbarHostState.showSnackbar("Allowed always \u2014 future requests auto-approved")
-                                                }
-                                            }
-                                        }
-                                    },
-                                    onDeny = {
-                                        if (isConnected) {
-                                            val permId = session.pendingPermissionId
-                                            if (permId != null) {
-                                                daemonClient.respondToPermission(session.id, permId, allow = false)
-                                            }
-                                        } else {
-                                            val idx = stubs.indexOfFirst { it.id == session.id }
-                                            if (idx >= 0) {
-                                                stubs[idx] = stubs[idx].copy(state = AgentState.Idle)
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
+                                    }
+                                },
+                                onDeny = {
+                                    val permId = session.pendingPermissionId
+                                    if (permId != null) {
+                                        daemonClient.respondToPermission(session.id, permId, allow = false)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
                 }
-
-                StatusRail(
-                    sessions = sessions,
-                    currentIndex = pagerState.currentPage,
-                    onTap = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = 6.dp)
-                        .fillMaxHeight(),
-                )
             }
+
+            StatusRail(
+                sessions = sessions,
+                currentIndex = pagerState.currentPage,
+                viewportHeight = viewportHeight,
+                onTap = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 6.dp)
+                    .fillMaxHeight(),
+            )
         }
     }
 }
@@ -295,13 +250,18 @@ fun LauncherScreen() {
 private fun StatusRail(
     sessions: List<AgentSession>,
     currentIndex: Int,
+    viewportHeight: Dp,
     onTap: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
+    val itemCount = sessions.size + 1
+    val slotHeight = minOf(26.dp, viewportHeight / itemCount)
+    val dotSize = minOf(8.dp, slotHeight * 0.3f)
+    val focusedHeight = minOf(22.dp, slotHeight * 0.8f)
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
     ) {
         sessions.forEachIndexed { index, session ->
             val focused = index == currentIndex
@@ -310,14 +270,14 @@ private fun StatusRail(
             Box(
                 modifier = Modifier
                     .pointerInput(index) { detectTapGestures { onTap(index) } }
-                    .width(24.dp)
-                    .height(28.dp),
+                    .width(20.dp)
+                    .height(slotHeight),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
                     Modifier
-                        .width(8.dp)
-                        .height(if (focused) 24.dp else 8.dp)
+                        .width(dotSize)
+                        .height(if (focused) focusedHeight else dotSize)
                         .background(color, shape),
                 )
             }
@@ -327,28 +287,17 @@ private fun StatusRail(
         Box(
             modifier = Modifier
                 .pointerInput(sessions.size) { detectTapGestures { onTap(sessions.size) } }
-                .width(24.dp)
-                .height(28.dp),
+                .width(20.dp)
+                .height(slotHeight),
             contentAlignment = Alignment.Center,
         ) {
             Box(
                 Modifier
-                    .width(8.dp)
-                    .height(if (settingsFocused) 24.dp else 8.dp)
+                    .width(dotSize)
+                    .height(if (settingsFocused) focusedHeight else dotSize)
                     .background(cs.outline, settingsShape),
             )
         }
-    }
-}
-
-@Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(
-            "Hold the button to start.",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -357,28 +306,3 @@ private fun EmptyState(modifier: Modifier = Modifier) {
 private fun LauncherDeckPreview() {
     PaseoTheme(darkTheme = false) { LauncherScreen() }
 }
-
-private fun stubSessions(): List<AgentSession> = listOf(
-    AgentSession("1", "Refactor auth module", "claude", "opus-4.6", AgentState.Running,
-        "Splitting AuthController into per-concern files; adding tests for token-refresh."),
-    AgentSession("2", "Add retry on 429", "codex", "gpt-5.4", AgentState.AwaitingInput,
-        "Wants to run `npm install` in /repo to add the retry dependency."),
-    AgentSession("3", "Generate fixtures", "opencode", "glm-5.2", AgentState.Done,
-        "Wrote 40 fixtures into tests/fixtures/ and updated the snapshot index."),
-    AgentSession("4", "Bump deps + renovate", "codex", "gpt-5.4", AgentState.Queued,
-        "Waiting for a free slot \u2014 one agent is already running on this provider."),
-    AgentSession("5", "Triage CI failures", "copilot", "gpt-5", AgentState.Error,
-        "Exited 1 after 42s: could not resolve host github.com (network was blocked).",
-        mode = AgentMode.Plan),
-    AgentSession("6", "New session", "claude", "opus-4.6", AgentState.Idle,
-        "Agent ready. Hold the button to give it a task."),
-    AgentSession("7", "Migrate to flake-parts", "claude", "opus-4.6", AgentState.Running,
-        "Converting the devshell to flake-parts modules; verifying nix develop.",
-        mode = AgentMode.Plan),
-    AgentSession("8", "Write migration guide", "opencode", "glm-5.2", AgentState.Done,
-        "Drafted docs/migrate.md covering the move and rollback steps."),
-    AgentSession("9", "Fix off-by-one in pager", "codex", "gpt-5.4", AgentState.AwaitingInput,
-        "Wants to overwrite src/config.ts with the corrected page count."),
-    AgentSession("10", "Seed test DB", "copilot", "gpt-5", AgentState.Queued,
-        "Queued behind the auth refactor; starts when CPU frees up."),
-)

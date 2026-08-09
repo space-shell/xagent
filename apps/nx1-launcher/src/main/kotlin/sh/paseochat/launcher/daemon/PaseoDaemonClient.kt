@@ -32,6 +32,7 @@ import sh.paseochat.launcher.daemon.models.PingEnvelope
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
+import sh.paseochat.launcher.model.PermOption
 import java.util.UUID
 
 private const val TAG = "PaseoDaemonClient"
@@ -47,6 +48,8 @@ class PaseoDaemonClient(
 
     private val _agents = MutableStateFlow<List<AgentSession>>(emptyList())
     val agents: StateFlow<List<AgentSession>> = _agents.asStateFlow()
+
+    private val timelineSummaries = mutableMapOf<String, String>()
 
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -79,6 +82,7 @@ class PaseoDaemonClient(
         reconnectJob?.cancel()
         webSocket?.close(1000, "client disconnect")
         webSocket = null
+        timelineSummaries.clear()
         _agents.value = emptyList()
         _connectionState.value = ConnectionState.Disconnected
     }
@@ -121,6 +125,49 @@ class PaseoDaemonClient(
         }
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "setAgentMode agentId=$agentId modeId=$modeId")
+        webSocket?.send(json)
+
+        val current = _agents.value
+        val idx = current.indexOfFirst { it.id == agentId }
+        if (idx >= 0) {
+            val session = current[idx]
+            val optimisticMode = if (modeId == session.planModeId) AgentMode.Plan else AgentMode.Build
+            _agents.value = current.toMutableList().apply {
+                this[idx] = session.copy(mode = optimisticMode)
+            }
+            Log.d(TAG, "optimistic mode update: $agentId -> $optimisticMode")
+        }
+    }
+
+    fun respondToPermissionWithAction(
+        agentId: String,
+        permissionRequestId: String,
+        selectedActionId: String? = null,
+        customAnswer: String? = null,
+    ) {
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "agent_permission_response")
+                put("agentId", agentId)
+                put("requestId", permissionRequestId)
+                putJsonObject("response") {
+                    if (selectedActionId != null) {
+                        put("behavior", "allow")
+                        put("selectedActionId", selectedActionId)
+                    } else if (customAnswer != null) {
+                        put("behavior", "allow")
+                        putJsonObject("updatedInput") {
+                            put("answer", customAnswer)
+                        }
+                    } else {
+                        put("behavior", "allow")
+                    }
+                }
+            }
+        }
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "respondToPermissionWithAction agentId=$agentId reqId=$permissionRequestId actionId=$selectedActionId custom=${customAnswer != null}")
         webSocket?.send(json)
     }
 
@@ -224,6 +271,7 @@ class PaseoDaemonClient(
             "status" -> handleStatusMessage(message)
             "fetch_agents_response" -> handleFetchAgentsResponse(message)
             "agent_update" -> handleAgentUpdate(message)
+            "agent_stream" -> handleAgentStream(message)
             "rpc_error" -> {
                 val payload = message["payload"]?.jsonObject
                 val error = payload?.get("error")?.jsonPrimitive?.contentOrNull
@@ -259,6 +307,8 @@ class PaseoDaemonClient(
         val agents = entries.mapNotNull { entry ->
             val agentObj = entry.jsonObject["agent"]?.jsonObject
             if (agentObj != null) parseAgentSnapshot(agentObj) else null
+        }.map { session ->
+            timelineSummaries[session.id]?.let { session.copy(summary = it) } ?: session
         }
         Log.d(TAG, "fetch_agents_response: ${agents.size} agents")
         _agents.value = agents
@@ -274,14 +324,44 @@ class PaseoDaemonClient(
                 Log.d(TAG, "agent_update upsert: ${session.id} state=${session.state}")
                 _agents.value = _agents.value.toMutableList().apply {
                     val idx = indexOfFirst { it.id == session.id }
-                    if (idx >= 0) this[idx] = session else add(session)
+                    val merged = timelineSummaries[session.id]?.let { session.copy(summary = it) } ?: session
+                    if (idx >= 0) this[idx] = merged else add(merged)
                 }
             }
             "remove" -> {
                 val agentId = payload["agentId"]?.jsonPrimitive?.contentOrNull ?: return
                 Log.d(TAG, "agent_update remove: $agentId")
+                timelineSummaries.remove(agentId)
                 _agents.value = _agents.value.filter { it.id != agentId }
             }
+        }
+    }
+
+    private fun handleAgentStream(message: JsonObject) {
+        val payload = message["payload"]?.jsonObject ?: return
+        val agentId = payload["agentId"]?.jsonPrimitive?.contentOrNull ?: return
+        val event = payload["event"]?.jsonObject ?: return
+        val eventType = event["type"]?.jsonPrimitive?.contentOrNull ?: return
+
+        if (eventType != "timeline") return
+
+        val item = event["item"]?.jsonObject ?: return
+        val itemType = item["type"]?.jsonPrimitive?.contentOrNull ?: return
+
+        if (itemType != "assistant_message") return
+
+        val text = item["text"]?.jsonPrimitive?.contentOrNull ?: return
+        val summary = text.take(140).trim()
+
+        timelineSummaries[agentId] = summary
+
+        val current = _agents.value
+        val idx = current.indexOfFirst { it.id == agentId }
+        if (idx >= 0) {
+            _agents.value = current.toMutableList().apply {
+                this[idx] = this[idx].copy(summary = summary)
+            }
+            Log.d(TAG, "timeline summary updated for $agentId: ${summary.take(60)}")
         }
     }
 
@@ -294,6 +374,11 @@ class PaseoDaemonClient(
         val model = agent["model"]?.jsonPrimitive?.contentOrNull ?: ""
         val status = agent["status"]?.jsonPrimitive?.contentOrNull ?: "idle"
 
+        val availableModes = agent["availableModes"] as? JsonArray
+        val modeIds = availableModes?.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.contentOrNull } ?: emptyList()
+        val planModeId = modeIds.firstOrNull { it.contains("plan") } ?: "plan"
+        val buildModeId = modeIds.firstOrNull { !it.contains("plan") } ?: "auto"
+
         val pendingPerms = agent["pendingPermissions"] as? JsonArray
         val hasPendingPerms = pendingPerms != null && pendingPerms.isNotEmpty()
         val attentionReason = agent["attentionReason"]?.jsonPrimitive?.contentOrNull
@@ -301,9 +386,25 @@ class PaseoDaemonClient(
 
         val firstPerm = pendingPerms?.firstOrNull()?.jsonObject
         val permId = firstPerm?.get("id")?.jsonPrimitive?.contentOrNull
+        val permKind = firstPerm?.get("kind")?.jsonPrimitive?.contentOrNull
+        val permTitle = firstPerm?.get("title")?.jsonPrimitive?.contentOrNull
+            ?: firstPerm?.get("description")?.jsonPrimitive?.contentOrNull
+            ?: firstPerm?.get("name")?.jsonPrimitive?.contentOrNull
         val permDesc = firstPerm?.get("description")?.jsonPrimitive?.contentOrNull
             ?: firstPerm?.get("title")?.jsonPrimitive?.contentOrNull
-            ?: firstPerm?.get("name")?.jsonPrimitive?.contentOrNull
+
+        val permOptions = if (permKind == "question") {
+            val actions = firstPerm?.get("actions") as? JsonArray
+            actions?.mapNotNull { action ->
+                val actionObj = action.jsonObject
+                val actionId = actionObj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val actionLabel = actionObj["label"]?.jsonPrimitive?.contentOrNull ?: actionId
+                val actionBehavior = actionObj["behavior"]?.jsonPrimitive?.contentOrNull ?: "allow"
+                PermOption(id = actionId, label = actionLabel, allow = actionBehavior == "allow")
+            } ?: emptyList()
+        } else {
+            emptyList()
+        }
 
         val state = when {
             hasPendingPerms -> AgentState.AwaitingInput
@@ -326,7 +427,7 @@ class PaseoDaemonClient(
         }
 
         val currentModeId = agent["currentModeId"]?.jsonPrimitive?.contentOrNull
-        val mode = if (currentModeId == "plan") AgentMode.Plan else AgentMode.Build
+        val mode = if (currentModeId != null && currentModeId.contains("plan")) AgentMode.Plan else AgentMode.Build
 
         return AgentSession(
             id = id,
@@ -336,7 +437,12 @@ class PaseoDaemonClient(
             state = state,
             summary = summary,
             mode = mode,
+            planModeId = planModeId,
+            buildModeId = buildModeId,
             pendingPermissionId = permId,
+            permissionKind = permKind,
+            permissionTitle = if (permKind == "question") permTitle else null,
+            permissionOptions = permOptions,
         )
     }
 

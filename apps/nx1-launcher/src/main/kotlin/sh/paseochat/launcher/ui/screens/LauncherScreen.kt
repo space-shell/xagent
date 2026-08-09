@@ -42,7 +42,9 @@ import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlinx.coroutines.launch
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
@@ -53,6 +55,7 @@ import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.voice.rememberVoiceController
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
+import sh.paseochat.launcher.model.PermOption
 import sh.paseochat.launcher.ui.components.SettingsCard
 import sh.paseochat.launcher.ui.components.stateDotColor
 import sh.paseochat.launcher.ui.theme.PaseoTheme
@@ -174,6 +177,17 @@ fun LauncherScreen() {
                                 onDisconnect = {
                                     daemonClient.disconnect()
                                 },
+                                onOpenLauncher = {
+                                    val pm = context.packageManager
+                                    val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                                    val launchers = pm.queryIntentActivities(homeIntent, 0)
+                                        .filter { it.activityInfo.packageName != context.packageName }
+                                    launchers.firstOrNull()?.let { resolveInfo ->
+                                        val intent = pm.getLaunchIntentForPackage(resolveInfo.activityInfo.packageName)
+                                        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        intent?.let { context.startActivity(it) }
+                                    }
+                                },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         } else {
@@ -196,13 +210,8 @@ fun LauncherScreen() {
                                     if (listeningId == session.id) voice.stop()
                                 },
                                 onCycleMode = {
-                                    val newMode = if (session.mode == AgentMode.Plan) "auto" else "plan"
-                                    daemonClient.setAgentMode(session.id, newMode)
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar(
-                                            if (newMode == "plan") "plan mode" else "build mode"
-                                        )
-                                    }
+                                    val newModeId = if (session.mode == AgentMode.Plan) session.buildModeId else session.planModeId
+                                    daemonClient.setAgentMode(session.id, newModeId)
                                 },
                                 onApprove = {
                                     val permId = session.pendingPermissionId
@@ -223,6 +232,24 @@ fun LauncherScreen() {
                                     val permId = session.pendingPermissionId
                                     if (permId != null) {
                                         daemonClient.respondToPermission(session.id, permId, allow = false)
+                                    }
+                                },
+                                onSelectOption = { opt ->
+                                    val permId = session.pendingPermissionId
+                                    if (permId != null) {
+                                        daemonClient.respondToPermissionWithAction(
+                                            session.id, permId,
+                                            selectedActionId = opt.id,
+                                        )
+                                    }
+                                },
+                                onCustomAnswer = { text ->
+                                    val permId = session.pendingPermissionId
+                                    if (permId != null) {
+                                        daemonClient.respondToPermissionWithAction(
+                                            session.id, permId,
+                                            customAnswer = text,
+                                        )
                                     }
                                 },
                                 modifier = Modifier.fillMaxSize(),

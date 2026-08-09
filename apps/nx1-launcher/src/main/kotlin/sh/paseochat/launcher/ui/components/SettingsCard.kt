@@ -17,9 +17,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -45,6 +47,7 @@ fun SettingsCard(
     connectionState: ConnectionState,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    onOpenLauncher: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -117,6 +120,8 @@ fun SettingsCard(
                         onDisconnect = onDisconnect,
                     )
                 }
+                Spacer(Modifier.height(12.dp))
+                LauncherButton(onOpenLauncher = onOpenLauncher)
             }
         }
     }
@@ -164,4 +169,33 @@ private fun ConnectionDot(state: ConnectionState) {
             .clip(CircleShape)
             .background(color),
     )
+}
+
+@Composable
+private fun LauncherButton(onOpenLauncher: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(cs.surfaceVariant)
+            .clickable(onClick = onOpenLauncher),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.Apps,
+                contentDescription = null,
+                tint = cs.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                "Apps",
+                color = cs.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
 }

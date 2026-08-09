@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -20,11 +21,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.Bolt
@@ -33,13 +37,19 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PauseCircleOutline
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -58,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
+import sh.paseochat.launcher.model.PermOption
 import sh.paseochat.launcher.ui.rememberHaptics
 import sh.paseochat.launcher.ui.theme.DoneContainerDark
 import sh.paseochat.launcher.ui.theme.DoneContainerLight
@@ -80,14 +91,23 @@ fun AgentCard(
     onApprove: () -> Unit = {},
     onDeny: () -> Unit = {},
     onApproveAlways: (() -> Unit)? = null,
+    onSelectOption: (PermOption) -> Unit = {},
+    onCustomAnswer: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val meta = stateMeta(session.state)
     val haptics = rememberHaptics()
 
+    val planBorder = if (session.mode == AgentMode.Plan) {
+        Modifier.border(3.dp, Color(0xFFFFD600), RoundedCornerShape(28.dp))
+    } else {
+        Modifier
+    }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .then(planBorder)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onLongPress = {
@@ -122,18 +142,31 @@ fun AgentCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "${session.provider}/${session.model} · ${session.mode.name.lowercase()}",
+                    "${session.provider}/${session.model}",
                     style = MaterialTheme.typography.labelSmall,
                     color = meta.onContainerColor.copy(alpha = 0.7f),
                 )
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    session.summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = meta.onContainerColor,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                val isQuestion = session.state == AgentState.AwaitingInput &&
+                    session.permissionKind == "question"
+                if (isQuestion) {
+                    Text(
+                        session.permissionTitle ?: session.summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = meta.onContainerColor,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    Text(
+                        session.summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = meta.onContainerColor,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 if (listening) {
                     ListeningLine(partialText)
@@ -141,7 +174,16 @@ fun AgentCard(
                     TranscriptBubble(session.userInput, meta.onContainerColor)
                 }
                 Spacer(Modifier.weight(1f))
-                if (session.state == AgentState.AwaitingInput) {
+                if (isQuestion) {
+                    QuestionBar(
+                        options = session.permissionOptions,
+                        onSelectOption = { opt ->
+                            haptics.confirm()
+                            onSelectOption(opt)
+                        },
+                        onCustomAnswer = onCustomAnswer,
+                    )
+                } else if (session.state == AgentState.AwaitingInput) {
                     ApprovalBar(
                         onApprove = { haptics.confirm(); onApprove() },
                         onDeny = { haptics.reject(); onDeny() },
@@ -325,6 +367,88 @@ private fun ApprovalBar(
             contentAlignment = Alignment.Center,
         ) {
             Text("Deny", color = cs.onError, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun QuestionBar(
+    options: List<PermOption>,
+    onSelectOption: (PermOption) -> Unit,
+    onCustomAnswer: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    var customText by remember { mutableStateOf("") }
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = 200.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(scrollState),
+        ) {
+            options.forEach { option ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(if (option.allow) cs.primary else cs.error)
+                        .clickable { onSelectOption(option) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        option.label,
+                        color = if (option.allow) cs.onPrimary else cs.onError,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                }
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            OutlinedTextField(
+                value = customText,
+                onValueChange = { customText = it },
+                placeholder = { Text("Custom\u2026", style = MaterialTheme.typography.bodySmall) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(cs.primary)
+                    .clickable {
+                        if (customText.isNotBlank()) {
+                            onCustomAnswer(customText.trim())
+                            customText = ""
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.Send,
+                    contentDescription = "Send",
+                    tint = cs.onPrimary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }

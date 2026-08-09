@@ -10,3 +10,8 @@ val Ink = Color(0xFF111014)
 
 val SurfaceDark = Color(0xFF1B1A1F)
 val SurfaceContainerDark = Color(0xFF242229)
+
+val DoneContainerLight = Color(0xFFC8E6CB)
+val OnDoneLight = Color(0xFF0E5B33)
+val DoneContainerDark = Color(0xFF1E3A28)
+val OnDoneDark = Color(0xFF9DD9A8)

@@ -62,7 +62,7 @@ finishes. This is the core divergence and the thing L1 tests.
 | `Queued` | task accepted, not yet started | tertiary chip |
 | `Running` | working now | primary chip + progress bar |
 | `AwaitingInput` | agent asking a question | secondary chip + pulse |
-| `Done` | finished successfully | primary-tinted chip |
+| `Done` | finished successfully | success-green chip *(deviation: spec said primary-tinted; changed to green so Done≠Running per AC-L1-2)* |
 | `Error` | failed / cancelled | error chip |
 
 ### Card lifecycle
@@ -135,4 +135,8 @@ Implemented in `apps/nx1-launcher/.../ui/theme/`:
 - **Surfaces:** `Paper #F7F5F2` (light) / `Ink #111014` (dark).
 - **Shape:** cards `RoundedCornerShape(28.dp)` (r1 uses large radii).
 - **Type:** system default at L0; custom type scale deferred to polish.
-- State tints map to Material3 `*Container` roles.
+- State tints map to Material3 `*Container`/`on*Container` roles (AA-safe at
+  `labelSmall`); **Done** uses dedicated success-green tokens
+  (`DoneContainerLight/OnDoneLight`, `…Dark`) ≈ 6:1 because white-on-r1-orange
+  and orange-on-wash both fail AA (4.5:1) for small text. `AwaitingInput` chip
+  pulses (alpha 1↔0.45, 900 ms) per §2.

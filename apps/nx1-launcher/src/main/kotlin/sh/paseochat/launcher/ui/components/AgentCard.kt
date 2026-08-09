@@ -1,5 +1,10 @@
 package sh.paseochat.launcher.ui.components
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,13 +34,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import sh.paseochat.launcher.ui.theme.DoneContainerDark
+import sh.paseochat.launcher.ui.theme.DoneContainerLight
+import sh.paseochat.launcher.ui.theme.OnDoneDark
+import sh.paseochat.launcher.ui.theme.OnDoneLight
 import sh.paseochat.launcher.ui.theme.PaseoTheme
 
 enum class AgentState { Idle, Queued, Running, AwaitingInput, Done, Error }
@@ -71,13 +82,13 @@ fun AgentCard(
                     Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(meta.tint),
+                        .background(meta.avatarBg),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         meta.icon,
                         contentDescription = session.provider,
-                        tint = meta.iconTint,
+                        tint = meta.avatarIcon,
                         modifier = Modifier.size(22.dp),
                     )
                 }
@@ -96,7 +107,7 @@ fun AgentCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                StateChip(session.state)
+                StateChip(session.state, meta)
             }
             Spacer(Modifier.height(12.dp))
             Text(
@@ -118,71 +129,102 @@ fun AgentCard(
 }
 
 @Composable
-private fun StateChip(state: AgentState) {
-    val cs = MaterialTheme.colorScheme
-    val (text, color) = when (state) {
-        AgentState.Idle -> "idle" to cs.onSurfaceVariant
-        AgentState.Queued -> "queued" to cs.tertiary
-        AgentState.Running -> "running" to cs.primary
-        AgentState.AwaitingInput -> "waiting" to cs.secondary
-        AgentState.Done -> "done" to cs.primary
-        AgentState.Error -> "error" to cs.error
+private fun StateChip(state: AgentState, meta: StateMeta) {
+    val pulseAlpha = if (state == AgentState.AwaitingInput) {
+        val transition = rememberInfiniteTransition(label = "awaiting-pulse")
+        transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.45f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "awaiting-alpha",
+        ).value
+    } else {
+        1f
     }
-    Surface(color = color.copy(alpha = 0.14f), shape = RoundedCornerShape(50)) {
+    Surface(
+        modifier = Modifier.alpha(pulseAlpha),
+        color = meta.chipBg,
+        shape = RoundedCornerShape(50),
+    ) {
         Text(
-            text,
+            meta.label,
             Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = color,
+            color = meta.chipText,
             fontWeight = FontWeight.SemiBold,
         )
     }
 }
 
 private data class StateMeta(
+    val label: String,
     val icon: ImageVector,
-    val tint: Color,
-    val iconTint: Color,
+    val avatarBg: Color,
+    val avatarIcon: Color,
+    val chipBg: Color,
+    val chipText: Color,
 )
 
 @Composable
 private fun stateMeta(state: AgentState): StateMeta {
     val cs = MaterialTheme.colorScheme
+    val dark = cs.surface.luminance() < 0.5f
     return when (state) {
         AgentState.Idle -> StateMeta(
-            Icons.Outlined.HourglassEmpty,
-            cs.surfaceContainerHighest,
-            cs.onSurfaceVariant,
+            label = "idle",
+            icon = Icons.Outlined.HourglassEmpty,
+            avatarBg = cs.surfaceVariant,
+            avatarIcon = cs.onSurfaceVariant,
+            chipBg = cs.surfaceVariant,
+            chipText = cs.onSurfaceVariant,
         )
         AgentState.Queued -> StateMeta(
-            Icons.Outlined.HourglassEmpty,
-            cs.tertiaryContainer,
-            cs.onTertiaryContainer,
+            label = "queued",
+            icon = Icons.Outlined.HourglassEmpty,
+            avatarBg = cs.tertiaryContainer,
+            avatarIcon = cs.onTertiaryContainer,
+            chipBg = cs.tertiaryContainer,
+            chipText = cs.onTertiaryContainer,
         )
         AgentState.Running -> StateMeta(
-            Icons.Outlined.Bolt,
-            cs.primary,
-            cs.onPrimary,
+            label = "running",
+            icon = Icons.Outlined.Bolt,
+            avatarBg = cs.primaryContainer,
+            avatarIcon = cs.onPrimaryContainer,
+            chipBg = cs.primaryContainer,
+            chipText = cs.onPrimaryContainer,
         )
         AgentState.AwaitingInput -> StateMeta(
-            Icons.Outlined.PauseCircleOutline,
-            cs.secondaryContainer,
-            cs.onSecondaryContainer,
+            label = "waiting",
+            icon = Icons.Outlined.PauseCircleOutline,
+            avatarBg = cs.secondaryContainer,
+            avatarIcon = cs.onSecondaryContainer,
+            chipBg = cs.secondaryContainer,
+            chipText = cs.onSecondaryContainer,
         )
         AgentState.Done -> StateMeta(
-            Icons.Outlined.CheckCircle,
-            cs.primaryContainer,
-            cs.onPrimaryContainer,
+            label = "done",
+            icon = Icons.Outlined.CheckCircle,
+            avatarBg = if (dark) DoneContainerDark else DoneContainerLight,
+            avatarIcon = if (dark) OnDoneDark else OnDoneLight,
+            chipBg = if (dark) DoneContainerDark else DoneContainerLight,
+            chipText = if (dark) OnDoneDark else OnDoneLight,
         )
         AgentState.Error -> StateMeta(
-            Icons.Outlined.ErrorOutline,
-            cs.errorContainer,
-            cs.onErrorContainer,
+            label = "error",
+            icon = Icons.Outlined.ErrorOutline,
+            avatarBg = cs.errorContainer,
+            avatarIcon = cs.onErrorContainer,
+            chipBg = cs.errorContainer,
+            chipText = cs.onErrorContainer,
         )
     }
 }
 
-@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 — card states (light)")
+@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 — six states (light)")
 @Composable
 private fun AgentCardStatesPreview() {
     PaseoTheme(darkTheme = false) {
@@ -190,15 +232,17 @@ private fun AgentCardStatesPreview() {
             Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AgentCard(sample("a", AgentState.Running, progress = 0.62f))
-            AgentCard(sample("b", AgentState.AwaitingInput))
-            AgentCard(sample("c", AgentState.Done))
-            AgentCard(sample("d", AgentState.Error))
+            AgentCard(sample(AgentState.Running, progress = 0.62f))
+            AgentCard(sample(AgentState.AwaitingInput))
+            AgentCard(sample(AgentState.Done))
+            AgentCard(sample(AgentState.Error))
+            AgentCard(sample(AgentState.Queued))
+            AgentCard(sample(AgentState.Idle))
         }
     }
 }
 
-@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 — card states (dark)")
+@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 — six states (dark)")
 @Composable
 private fun AgentCardStatesDarkPreview() {
     PaseoTheme(darkTheme = true) {
@@ -206,19 +250,21 @@ private fun AgentCardStatesDarkPreview() {
             Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AgentCard(sample("a", AgentState.Running, progress = 0.3f))
-            AgentCard(sample("b", AgentState.Queued))
-            AgentCard(sample("c", AgentState.Idle))
+            AgentCard(sample(AgentState.Running, progress = 0.3f))
+            AgentCard(sample(AgentState.AwaitingInput))
+            AgentCard(sample(AgentState.Done))
+            AgentCard(sample(AgentState.Error))
+            AgentCard(sample(AgentState.Queued))
+            AgentCard(sample(AgentState.Idle))
         }
     }
 }
 
 private fun sample(
-    id: String,
     state: AgentState,
     progress: Float = 0f,
 ): AgentSession = AgentSession(
-    id = id,
+    id = state.name,
     title = "Refactor auth module",
     provider = "claude",
     model = "opus-4.6",

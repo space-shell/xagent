@@ -70,8 +70,9 @@ increment hangs on.
 - [x] `flake.nix` devshell (jdk17, gradle, android-sdk, adb, scrcpy).
 - [x] Compose project (`apps/nx1-launcher`), `compileSdk`/`targetSdk` 35, `minSdk` 26.
 - [x] `CATEGORY_HOME` launcher manifest; r1 color tokens; `@Preview` at 270×584.
-- [ ] Verify build: `nix develop -c gradle :app:assembleDebug`.
+- [x] Verify build: `nix develop -c gradle :app:assembleDebug` (green, `f67ff29`).
 - [ ] Install on an emulator (540×1168 / xhdpi) and confirm it appears as a Home option.
+      **DEFERRED to hardware** — emulator skipped per decision (2026-08-09); AC-L0-2 verified on NX1 when it arrives.
 **Stories** — `US-L0-1` As the developer, I want a building launcher shell so all
 UI work has a home. `US-L0-2` As Sam, I want the app installable as my Home, so
 the device becomes the assistant.
@@ -87,7 +88,10 @@ Spec: `card-model.md` §2.
 - [x] `AgentSession` model + `AgentState` enum.
 - [x] `AgentCard` (identity row, state chip, body, conditional progress).
 - [x] State previews (light + dark) at 270×584.
-- [ ] Ergonomic pass: tap targets ≥48 dp; body clamp ≤3 lines; contrast AA.
+- [x] Ergonomic pass: tap targets ≥48 dp; body clamp ≤3 lines; contrast AA.
+      (card tap target >48dp; body maxLines=3; StateChip now uses Material3
+      `*Container`/`on*Container` pairs for AA; Done recoloured success-green
+      ~6:1 — see card-model.md §7.)
 - [ ] Non-dev walkthrough of the six states (do they read without a legend?).
 **Stories** — `US-L1-1` As Sam, I want each card to tell me at a glance *which*
 agent, *what* it's doing, and *what state* it's in. `US-L1-2` As Sam, I want the

@@ -22,19 +22,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
@@ -45,7 +37,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -135,28 +126,6 @@ fun LauncherScreen() {
 
     val pagerState = rememberPagerState(pageCount = { sessions.size })
 
-    val onDismiss: (AgentSession) -> Unit = { session ->
-        val idx = sessions.indexOf(session)
-        val wasCurrent = pagerState.currentPage == idx
-        sessions.remove(session)
-        scope.launch {
-            if (wasCurrent) {
-                val target = (sessions.size - 1).coerceAtLeast(0)
-                if (pagerState.currentPage > target) {
-                    pagerState.scrollToPage(target)
-                }
-            }
-            val result = snackbarHostState.showSnackbar(
-                message = "Dismissed \u201C${session.title}\u201D",
-                actionLabel = "Undo",
-                duration = SnackbarDuration.Short,
-            )
-            if (result == SnackbarResult.ActionPerformed) {
-                sessions.add(idx.coerceIn(0, sessions.size), session)
-            }
-        }
-    }
-
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         if (sessions.isEmpty()) {
             EmptyState(Modifier.padding(padding))
@@ -186,51 +155,33 @@ fun LauncherScreen() {
                             Modifier
                                 .fillMaxWidth()
                                 .height(DECK_CARD_HEIGHT)
-                                .padding(horizontal = 16.dp)
+                                .padding(start = 40.dp, end = 16.dp)
                                 .graphicsLayer {
                                     val naturalY = o * viewportHeight.toPx()
                                     translationY = ty.toPx() - naturalY
                                     alpha = cardAlpha
                                 },
                         ) {
-                            val dismissState = rememberSwipeToDismissBoxState(
-                                confirmValueChange = { it != SwipeToDismissBoxValue.Settled }
-                            )
-                            val dismissed = remember { mutableStateOf(false) }
-                            LaunchedEffect(dismissState.currentValue) {
-                                if (!dismissed.value &&
-                                    dismissState.currentValue != SwipeToDismissBoxValue.Settled
-                                ) {
-                                    dismissed.value = true
-                                    onDismiss(session)
-                                }
-                            }
-                            SwipeToDismissBox(
-                                state = dismissState,
-                                modifier = Modifier.fillMaxSize(),
-                                backgroundContent = { DismissBackground() },
-                            ) {
-                                AgentCard(
-                                    session,
-                                    onClick = { detailId = session.id },
-                                    listening = listeningId == session.id,
-                                    partialText = if (listeningId == session.id) voice.partialText else "",
-                                    onMicDown = {
-                                        if (!voice.isListening) {
-                                            if (hasMicPermission) {
-                                                startListening(session.id)
-                                            } else {
-                                                pendingListenId = session.id
-                                                permLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                            }
+                            AgentCard(
+                                session,
+                                onClick = { detailId = session.id },
+                                listening = listeningId == session.id,
+                                partialText = if (listeningId == session.id) voice.partialText else "",
+                                onMicDown = {
+                                    if (!voice.isListening) {
+                                        if (hasMicPermission) {
+                                            startListening(session.id)
+                                        } else {
+                                            pendingListenId = session.id
+                                            permLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         }
-                                    },
-                                    onMicUp = {
-                                        if (listeningId == session.id) voice.stop()
-                                    },
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
+                                    }
+                                },
+                                onMicUp = {
+                                    if (listeningId == session.id) voice.stop()
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
                 }
@@ -258,7 +209,7 @@ private fun StatusRail(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.SpaceEvenly,
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
     ) {
         sessions.forEachIndexed { index, session ->
             val focused = index == currentIndex
@@ -289,24 +240,6 @@ private fun EmptyState(modifier: Modifier = Modifier) {
             "Hold the button to start.",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun DismissBackground() {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(28.dp))
-            .background(MaterialTheme.colorScheme.errorContainer),
-        contentAlignment = Alignment.CenterEnd,
-    ) {
-        Icon(
-            Icons.Outlined.Delete,
-            contentDescription = "Dismiss",
-            tint = MaterialTheme.colorScheme.onErrorContainer,
-            modifier = Modifier.padding(end = 24.dp),
         )
     }
 }

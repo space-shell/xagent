@@ -105,7 +105,8 @@ fun LauncherScreen() {
             EmptyState(Modifier.padding(padding))
         } else {
             BoxWithConstraints(modifier = Modifier.padding(padding)) {
-                val focusedTop = (maxHeight - DECK_CARD_HEIGHT) / 2f
+                val viewportHeight = maxHeight
+                val focusedTop = (viewportHeight - DECK_CARD_HEIGHT) / 2f
                 VerticalPager(
                     state = pagerState,
                     pageSize = PageSize.Fill,
@@ -132,7 +133,8 @@ fun LauncherScreen() {
                                 .height(DECK_CARD_HEIGHT)
                                 .padding(horizontal = 16.dp)
                                 .graphicsLayer {
-                                    translationY = ty.toPx()
+                                    val naturalY = o * viewportHeight.toPx()
+                                    translationY = ty.toPx() - naturalY
                                     scaleX = cardScale
                                     scaleY = cardScale
                                     alpha = cardAlpha

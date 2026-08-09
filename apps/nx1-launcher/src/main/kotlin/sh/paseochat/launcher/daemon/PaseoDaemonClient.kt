@@ -11,8 +11,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -22,6 +29,9 @@ import sh.paseochat.launcher.daemon.models.ConnectionState
 import sh.paseochat.launcher.daemon.models.DaemonJson
 import sh.paseochat.launcher.daemon.models.HelloEnvelope
 import sh.paseochat.launcher.daemon.models.PingEnvelope
+import sh.paseochat.launcher.model.AgentMode
+import sh.paseochat.launcher.model.AgentSession
+import sh.paseochat.launcher.model.AgentState
 import java.util.UUID
 
 private const val TAG = "PaseoDaemonClient"
@@ -35,6 +45,9 @@ class PaseoDaemonClient(
     private val _connectionState = MutableStateFlow(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
+    private val _agents = MutableStateFlow<List<AgentSession>>(emptyList())
+    val agents: StateFlow<List<AgentSession>> = _agents.asStateFlow()
+
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
     private var reconnectJob: Job? = null
@@ -42,11 +55,13 @@ class PaseoDaemonClient(
     private var currentPassword: String = ""
     private val clientId = UUID.randomUUID().toString()
     private var reconnectAttempts = 0
+    private var sessionReady = false
 
     fun connect(host: String, password: String) {
         Log.d(TAG, "connect() host=$host")
         currentHost = host
         currentPassword = password
+        sessionReady = false
         pingJob?.cancel()
         reconnectJob?.cancel()
         webSocket?.close(1000, "reconnect")
@@ -59,10 +74,12 @@ class PaseoDaemonClient(
     fun disconnect() {
         Log.d(TAG, "disconnect()")
         currentHost = null
+        sessionReady = false
         pingJob?.cancel()
         reconnectJob?.cancel()
         webSocket?.close(1000, "client disconnect")
         webSocket = null
+        _agents.value = emptyList()
         _connectionState.value = ConnectionState.Disconnected
     }
 
@@ -74,6 +91,7 @@ class PaseoDaemonClient(
     private fun doConnect() {
         val host = currentHost ?: return
         val url = "ws://$host/ws"
+        sessionReady = false
         Log.d(TAG, "doConnect() url=$url")
         val request = Request.Builder().url(url).apply {
             if (currentPassword.isNotEmpty()) {
@@ -99,6 +117,23 @@ class PaseoDaemonClient(
         webSocket?.send(json)
     }
 
+    private fun sendFetchAgents() {
+        val subscriptionId = UUID.randomUUID().toString()
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "fetch_agents_request")
+                put("requestId", UUID.randomUUID().toString())
+                putJsonObject("subscribe") {
+                    put("subscriptionId", subscriptionId)
+                }
+            }
+        }
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "sendFetchAgents() $json")
+        webSocket?.send(json)
+    }
+
     private fun scheduleReconnect() {
         if (currentHost == null) return
         reconnectAttempts++
@@ -118,17 +153,123 @@ class PaseoDaemonClient(
         try {
             val element = DaemonJson.parseToJsonElement(text)
             val obj = element.jsonObject
-            val type = obj["type"]?.jsonPrimitive?.content
+            val type = obj["type"]?.jsonPrimitive?.contentOrNull
             when (type) {
                 "pong" -> { Log.v(TAG, "pong received") }
                 "session" -> {
-                    Log.d(TAG, "session message: ${text.take(200)}")
+                    val message = obj["message"]?.jsonObject
+                    if (message != null) handleSessionMessage(message)
                 }
                 else -> Log.d(TAG, "unknown message type=$type: ${text.take(200)}")
             }
         } catch (e: Exception) {
             Log.w(TAG, "failed to parse message: ${text.take(200)}", e)
         }
+    }
+
+    private fun handleSessionMessage(message: JsonObject) {
+        val msgType = message["type"]?.jsonPrimitive?.contentOrNull ?: return
+        when (msgType) {
+            "status" -> handleStatusMessage(message)
+            "fetch_agents_response" -> handleFetchAgentsResponse(message)
+            "agent_update" -> handleAgentUpdate(message)
+            "rpc_error" -> {
+                val payload = message["payload"]?.jsonObject
+                val error = payload?.get("error")?.jsonPrimitive?.contentOrNull
+                Log.w(TAG, "rpc_error: $error")
+            }
+            else -> Log.d(TAG, "session message type=$msgType: ${message.toString().take(200)}")
+        }
+    }
+
+    private fun handleStatusMessage(message: JsonObject) {
+        val payload = message["payload"]?.jsonObject ?: return
+        val status = payload["status"]?.jsonPrimitive?.contentOrNull ?: return
+        if (status == "server_info" && !sessionReady) {
+            Log.d(TAG, "server_info received — requesting agents")
+            sessionReady = true
+            sendFetchAgents()
+        }
+    }
+
+    private fun handleFetchAgentsResponse(message: JsonObject) {
+        val payload = message["payload"]?.jsonObject ?: return
+        val entries = payload["entries"]?.jsonArray ?: return
+        val agents = entries.mapNotNull { entry ->
+            val agentObj = entry.jsonObject["agent"]?.jsonObject
+            if (agentObj != null) parseAgentSnapshot(agentObj) else null
+        }
+        Log.d(TAG, "fetch_agents_response: ${agents.size} agents")
+        _agents.value = agents
+    }
+
+    private fun handleAgentUpdate(message: JsonObject) {
+        val payload = message["payload"]?.jsonObject ?: return
+        val kind = payload["kind"]?.jsonPrimitive?.contentOrNull ?: return
+        when (kind) {
+            "upsert" -> {
+                val agentObj = payload["agent"]?.jsonObject ?: return
+                val session = parseAgentSnapshot(agentObj) ?: return
+                Log.d(TAG, "agent_update upsert: ${session.id} state=${session.state}")
+                _agents.value = _agents.value.toMutableList().apply {
+                    val idx = indexOfFirst { it.id == session.id }
+                    if (idx >= 0) this[idx] = session else add(session)
+                }
+            }
+            "remove" -> {
+                val agentId = payload["agentId"]?.jsonPrimitive?.contentOrNull ?: return
+                Log.d(TAG, "agent_update remove: $agentId")
+                _agents.value = _agents.value.filter { it.id != agentId }
+            }
+        }
+    }
+
+    private fun parseAgentSnapshot(agent: JsonObject): AgentSession? {
+        val id = agent["id"]?.jsonPrimitive?.contentOrNull ?: return null
+        val cwd = agent["cwd"]?.jsonPrimitive?.contentOrNull ?: ""
+        val title = agent["title"]?.jsonPrimitive?.contentOrNull
+            ?: cwd.substringAfterLast('/').ifBlank { "Agent" }
+        val provider = agent["provider"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+        val model = agent["model"]?.jsonPrimitive?.contentOrNull ?: ""
+        val status = agent["status"]?.jsonPrimitive?.contentOrNull ?: "idle"
+
+        val pendingPerms = agent["pendingPermissions"] as? JsonArray
+        val hasPendingPerms = pendingPerms != null && pendingPerms.isNotEmpty()
+        val attentionReason = agent["attentionReason"]?.jsonPrimitive?.contentOrNull
+        val lastError = agent["lastError"]?.jsonPrimitive?.contentOrNull
+
+        val state = when {
+            hasPendingPerms -> AgentState.AwaitingInput
+            status == "running" -> AgentState.Running
+            status == "error" -> AgentState.Error
+            status == "closed" -> AgentState.Done
+            status == "initializing" -> AgentState.Queued
+            attentionReason == "finished" -> AgentState.Done
+            attentionReason == "error" -> AgentState.Error
+            else -> AgentState.Idle
+        }
+
+        val summary = lastError ?: when (state) {
+            AgentState.Running -> "Working in $cwd"
+            AgentState.Done -> "Task complete."
+            AgentState.Error -> "Agent encountered an error."
+            AgentState.Queued -> "Starting up\u2026"
+            AgentState.AwaitingInput -> "Waiting for approval."
+            AgentState.Idle -> "Ready. Hold the button to talk."
+        }
+
+        val currentModeId = agent["currentModeId"]?.jsonPrimitive?.contentOrNull
+        val mode = if (currentModeId == "plan") AgentMode.Plan else AgentMode.Build
+
+        return AgentSession(
+            id = id,
+            title = title,
+            provider = provider,
+            model = model,
+            state = state,
+            summary = summary,
+            mode = mode,
+        )
     }
 
     private inner class DaemonListener : WebSocketListener() {

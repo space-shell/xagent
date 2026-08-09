@@ -52,9 +52,9 @@ import sh.paseochat.launcher.daemon.PaseoDaemonClient
 import sh.paseochat.launcher.daemon.models.ConnectionState
 import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.voice.rememberVoiceController
-import sh.paseochat.launcher.ui.components.AgentSession
-import sh.paseochat.launcher.ui.components.AgentMode
-import sh.paseochat.launcher.ui.components.AgentState
+import sh.paseochat.launcher.model.AgentMode
+import sh.paseochat.launcher.model.AgentSession
+import sh.paseochat.launcher.model.AgentState
 import sh.paseochat.launcher.ui.components.SettingsCard
 import sh.paseochat.launcher.ui.components.stateDotColor
 import sh.paseochat.launcher.ui.theme.PaseoTheme
@@ -66,7 +66,7 @@ private const val Z_PER_RANK = 0.20f
 
 @Composable
 fun LauncherScreen() {
-    val sessions = remember { mutableStateListOf(*stubSessions().toTypedArray()) }
+    val stubs = remember { mutableStateListOf(*stubSessions().toTypedArray()) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -83,6 +83,9 @@ fun LauncherScreen() {
 
     val daemonClient = remember { PaseoDaemonClient() }
     val connectionState by daemonClient.connectionState.collectAsState()
+    val realAgents by daemonClient.agents.collectAsState()
+    val isConnected = connectionState == ConnectionState.Connected
+    val sessions: List<AgentSession> = if (isConnected) realAgents else stubs
     var settingsHost by remember { mutableStateOf("100.127.193.39:6767") }
     var settingsPassword by remember { mutableStateOf("") }
 
@@ -99,8 +102,10 @@ fun LauncherScreen() {
 
     fun startListening(sessionId: String) {
         voice.onFinal = { text ->
-            val idx = sessions.indexOfFirst { it.id == sessionId }
-            if (idx >= 0) sessions[idx] = sessions[idx].copy(userInput = text)
+            if (!isConnected) {
+                val idx = stubs.indexOfFirst { it.id == sessionId }
+                if (idx >= 0) stubs[idx] = stubs[idx].copy(userInput = text)
+            }
             listeningId = null
             voice.reset()
         }
@@ -198,35 +203,43 @@ fun LauncherScreen() {
                                         if (listeningId == session.id) voice.stop()
                                     },
                                     onCycleMode = {
-                                        val idx = sessions.indexOfFirst { it.id == session.id }
-                                        if (idx >= 0) {
-                                            val newMode = if (sessions[idx].mode == AgentMode.Plan)
-                                                AgentMode.Build else AgentMode.Plan
-                                            sessions[idx] = sessions[idx].copy(mode = newMode)
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar("${newMode.name.lowercase()} mode")
+                                        if (!isConnected) {
+                                            val idx = stubs.indexOfFirst { it.id == session.id }
+                                            if (idx >= 0) {
+                                                val newMode = if (stubs[idx].mode == AgentMode.Plan)
+                                                    AgentMode.Build else AgentMode.Plan
+                                                stubs[idx] = stubs[idx].copy(mode = newMode)
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("${newMode.name.lowercase()} mode")
+                                                }
                                             }
                                         }
                                     },
                                     onApprove = {
-                                        val idx = sessions.indexOfFirst { it.id == session.id }
-                                        if (idx >= 0) {
-                                            sessions[idx] = sessions[idx].copy(state = AgentState.Running)
+                                        if (!isConnected) {
+                                            val idx = stubs.indexOfFirst { it.id == session.id }
+                                            if (idx >= 0) {
+                                                stubs[idx] = stubs[idx].copy(state = AgentState.Running)
+                                            }
                                         }
                                     },
                                     onApproveAlways = {
-                                        val idx = sessions.indexOfFirst { it.id == session.id }
-                                        if (idx >= 0) {
-                                            sessions[idx] = sessions[idx].copy(state = AgentState.Running)
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar("Allowed always \u2014 future requests auto-approved")
+                                        if (!isConnected) {
+                                            val idx = stubs.indexOfFirst { it.id == session.id }
+                                            if (idx >= 0) {
+                                                stubs[idx] = stubs[idx].copy(state = AgentState.Running)
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("Allowed always \u2014 future requests auto-approved")
+                                                }
                                             }
                                         }
                                     },
                                     onDeny = {
-                                        val idx = sessions.indexOfFirst { it.id == session.id }
-                                        if (idx >= 0) {
-                                            sessions[idx] = sessions[idx].copy(state = AgentState.Idle)
+                                        if (!isConnected) {
+                                            val idx = stubs.indexOfFirst { it.id == session.id }
+                                            if (idx >= 0) {
+                                                stubs[idx] = stubs[idx].copy(state = AgentState.Idle)
+                                            }
                                         }
                                     },
                                     modifier = Modifier.fillMaxSize(),

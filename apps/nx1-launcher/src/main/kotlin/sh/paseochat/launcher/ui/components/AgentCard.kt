@@ -55,6 +55,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import sh.paseochat.launcher.model.AgentMode
+import sh.paseochat.launcher.model.AgentSession
+import sh.paseochat.launcher.model.AgentState
 import sh.paseochat.launcher.ui.rememberHaptics
 import sh.paseochat.launcher.ui.theme.DoneContainerDark
 import sh.paseochat.launcher.ui.theme.DoneContainerLight
@@ -62,20 +65,6 @@ import sh.paseochat.launcher.ui.theme.OnDoneDark
 import sh.paseochat.launcher.ui.theme.OnDoneLight
 import sh.paseochat.launcher.ui.theme.PaseoTheme
 import sh.paseochat.launcher.ui.theme.R1Orange
-
-enum class AgentState { Idle, Queued, Running, AwaitingInput, Done, Error }
-enum class AgentMode { Plan, Build }
-
-data class AgentSession(
-    val id: String,
-    val title: String,
-    val provider: String,
-    val model: String,
-    val state: AgentState,
-    val summary: String,
-    val userInput: String = "",
-    val mode: AgentMode = AgentMode.Build,
-)
 
 @Composable
 fun stateDotColor(state: AgentState): Color = stateMeta(state).containerColor

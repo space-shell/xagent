@@ -24,7 +24,9 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,12 +48,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import sh.paseochat.launcher.daemon.PaseoDaemonClient
+import sh.paseochat.launcher.daemon.models.ConnectionState
 import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.voice.rememberVoiceController
 import sh.paseochat.launcher.ui.components.AgentSession
 import sh.paseochat.launcher.ui.components.AgentMode
 import sh.paseochat.launcher.ui.components.AgentState
-import sh.paseochat.launcher.ui.components.ConnectionState
 import sh.paseochat.launcher.ui.components.SettingsCard
 import sh.paseochat.launcher.ui.components.stateDotColor
 import sh.paseochat.launcher.ui.theme.PaseoTheme
@@ -78,9 +81,14 @@ fun LauncherScreen() {
     }
     var pendingListenId by remember { mutableStateOf<String?>(null) }
 
+    val daemonClient = remember { PaseoDaemonClient() }
+    val connectionState by daemonClient.connectionState.collectAsState()
     var settingsHost by remember { mutableStateOf("100.127.193.39:6767") }
     var settingsPassword by remember { mutableStateOf("") }
-    var connectionState by remember { mutableStateOf(ConnectionState.Disconnected) }
+
+    DisposableEffect(daemonClient) {
+        onDispose { daemonClient.close() }
+    }
 
     LaunchedEffect(Unit) {
         voice.onError = { msg ->
@@ -163,13 +171,10 @@ fun LauncherScreen() {
                                     onPasswordChange = { settingsPassword = it },
                                     connectionState = connectionState,
                                     onConnect = {
-                                        connectionState = ConnectionState.Connected
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Connected to $settingsHost")
-                                        }
+                                        daemonClient.connect(settingsHost, settingsPassword)
                                     },
                                     onDisconnect = {
-                                        connectionState = ConnectionState.Disconnected
+                                        daemonClient.disconnect()
                                     },
                                     modifier = Modifier.fillMaxSize(),
                                 )

@@ -34,8 +34,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-
-enum class ConnectionState { Disconnected, Connecting, Connected, Error }
+import sh.paseochat.launcher.daemon.models.ConnectionState
 
 @Composable
 fun SettingsCard(

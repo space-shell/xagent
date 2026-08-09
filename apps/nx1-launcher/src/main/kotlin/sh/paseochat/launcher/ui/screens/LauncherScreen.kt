@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.VerticalPager
@@ -42,6 +43,7 @@ import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlinx.coroutines.launch
 import android.Manifest
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
@@ -84,6 +86,7 @@ fun LauncherScreen() {
     val daemonClient = remember { PaseoDaemonClient() }
     val connectionState by daemonClient.connectionState.collectAsState()
     val sessions by daemonClient.agents.collectAsState()
+    val serverName by daemonClient.serverName.collectAsState()
     var settingsHost by remember { mutableStateOf("100.127.193.39:6767") }
     var settingsPassword by remember { mutableStateOf("") }
 
@@ -182,10 +185,17 @@ fun LauncherScreen() {
                                     val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
                                     val launchers = pm.queryIntentActivities(homeIntent, 0)
                                         .filter { it.activityInfo.packageName != context.packageName }
-                                    launchers.firstOrNull()?.let { resolveInfo ->
-                                        val intent = pm.getLaunchIntentForPackage(resolveInfo.activityInfo.packageName)
-                                        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        intent?.let { context.startActivity(it) }
+                                    val target = launchers.firstOrNull()
+                                    if (target != null) {
+                                        val intent = Intent(Intent.ACTION_MAIN).apply {
+                                            addCategory(Intent.CATEGORY_HOME)
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            component = ComponentName(
+                                                target.activityInfo.packageName,
+                                                target.activityInfo.name,
+                                            )
+                                        }
+                                        context.startActivity(intent)
                                     }
                                 },
                                 modifier = Modifier.fillMaxSize(),
@@ -194,6 +204,7 @@ fun LauncherScreen() {
                             val session = sessions[pageIndex]
                             AgentCard(
                                 session,
+                                serverName = serverName,
                                 listening = listeningId == session.id,
                                 partialText = if (listeningId == session.id) voice.partialText else "",
                                 onMicDown = {
@@ -309,6 +320,7 @@ private fun StatusRail(
                 )
             }
         }
+        Spacer(Modifier.height(14.dp))
         val settingsFocused = sessions.size == currentIndex
         val settingsShape = if (settingsFocused) RoundedCornerShape(50) else CircleShape
         Box(

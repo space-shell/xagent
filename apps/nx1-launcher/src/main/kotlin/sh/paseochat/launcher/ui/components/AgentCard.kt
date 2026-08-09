@@ -83,6 +83,7 @@ fun stateDotColor(state: AgentState): Color = stateMeta(state).containerColor
 @Composable
 fun AgentCard(
     session: AgentSession,
+    serverName: String = "",
     listening: Boolean = false,
     partialText: String = "",
     onMicDown: () -> Unit = {},
@@ -108,7 +109,7 @@ fun AgentCard(
         modifier = modifier
             .fillMaxWidth()
             .then(planBorder)
-            .pointerInput(Unit) {
+            .pointerInput(session.id, session.mode) {
                 detectTapGestures(
                     onLongPress = {
                         haptics.longPress()
@@ -142,9 +143,14 @@ fun AgentCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "${session.provider}/${session.model}",
+                    buildString {
+                        append("${session.provider}/${session.model}")
+                        if (serverName.isNotBlank()) append(" · $serverName")
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = meta.onContainerColor.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(12.dp))
                 val isQuestion = session.state == AgentState.AwaitingInput &&

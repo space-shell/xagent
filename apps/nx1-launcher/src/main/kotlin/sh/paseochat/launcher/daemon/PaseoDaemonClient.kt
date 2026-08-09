@@ -49,6 +49,9 @@ class PaseoDaemonClient(
     private val _agents = MutableStateFlow<List<AgentSession>>(emptyList())
     val agents: StateFlow<List<AgentSession>> = _agents.asStateFlow()
 
+    private val _serverName = MutableStateFlow("")
+    val serverName: StateFlow<String> = _serverName.asStateFlow()
+
     private val timelineSummaries = mutableMapOf<String, String>()
 
     private var webSocket: WebSocket? = null
@@ -83,6 +86,7 @@ class PaseoDaemonClient(
         webSocket?.close(1000, "client disconnect")
         webSocket = null
         timelineSummaries.clear()
+        _serverName.value = ""
         _agents.value = emptyList()
         _connectionState.value = ConnectionState.Disconnected
     }
@@ -295,7 +299,9 @@ class PaseoDaemonClient(
         val payload = message["payload"]?.jsonObject ?: return
         val status = payload["status"]?.jsonPrimitive?.contentOrNull ?: return
         if (status == "server_info" && !sessionReady) {
-            Log.d(TAG, "server_info received — requesting agents")
+            val hostname = payload["hostname"]?.jsonPrimitive?.contentOrNull
+            _serverName.value = hostname ?: ""
+            Log.d(TAG, "server_info received — hostname=$hostname")
             sessionReady = true
             sendFetchAgents()
         }

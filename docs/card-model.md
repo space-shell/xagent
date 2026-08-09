@@ -2,13 +2,10 @@
 
 **North star:** rabbitOS (Rabbit r1). **Scope:** we replicate rabbitOS's
 *interaction shell* on a general Android device — the Home launcher, push-to-talk,
-scroll/swipe card navigation, card-based results, gesture nav. We do **not**
-replicate its cloud "LAM" web-agent backend; Paseo provides action.
+scroll card navigation, card-based results. We do **not** replicate its cloud
+"LAM" web-agent backend; Paseo provides action.
 
-This document is the design spec for the launcher UI. It exists because the
-biggest unknown isn't "can we draw r1-like cards" — it's **does the r1 card
-model survive being pointed at long-lived, streaming agent sessions instead of
-ephemeral consumer answers.** That has to be designed, then tested.
+This document is the design spec for the launcher UI.
 
 ---
 
@@ -21,9 +18,7 @@ ephemeral consumer answers.** That has to be designed, then tested.
 | Reach | one-handed; thumb arc covers bottom ~60% |
 | Input | touch + side **programmable key** (r1's push-to-talk analogue) + IR |
 
-**Rule:** every composable is previewed at `widthDp = 270, heightDp = 584`. If it
-doesn't read there, it doesn't ship. Compose `@Preview` is the primary design
-surface until the NX1 arrives.
+**Rule:** every composable is previewed at `widthDp = 270, heightDp = 584`.
 
 ---
 
@@ -34,85 +29,127 @@ answer). Produced, consumed, scrolled away.
 
 **xagent card** = an **agent session** — long-lived, stateful, streaming.
 Created when a task starts, mutated as it runs, persistent in the stack after it
-finishes. This is the core divergence and the thing L1 tests.
+finishes.
+
+### Design pivot: remote controller (2026-08-09, `4990e08`)
+
+The NX1 is **not a reading device** — it's a **remote controller**. You don't
+drill into a card to read detailed output; you glance at state, approve/deny
+actions, switch modes, and talk to steer. This pivot drove:
+
+- **No detail/tap-through.** The card is the full interface. `AgentDetail`
+  composable deleted.
+- **No swipe-to-dismiss.** Cards persist in the stack (`9d5bd82`).
+- **Card background colour = state.** The entire card surface communicates state
+  at a glance — no icon, chip, or progress bar needed.
+- **State icon as full-card watermark.** The icon fills the card behind content
+  at alpha 0.07, reinforcing state recognition subconsciously.
+- **Approval gates on-device.** When an agent needs permission, the card shows
+  `[Allow] [Deny]` buttons.
+- **Plan/Build mode toggle.** Long-press cycles Plan (read-only) ↔ Build
+  (execute). Maps to Paseo's `plan` / `auto` session modes.
 
 ### Card anatomy
 ```
-┌───────────────────────────────────────┐
-│ (○ provider)  Title          [ state ] │  ← identity row
-│               provider/model           │
+┌───────────────────────────────────────┐  ← bg: state container colour
+│                                ⚡(faded)│  ← watermark icon fills card
+│ Title                                  │     (alpha 0.07, ContentScale.Crop)
+│ provider/model · build                 │  ← subtitle: mode always visible
 │                                        │
-│  Summary / latest message (≤3 lines)   │  ← body
-│  …                                     │
+│ Summary / latest action (≤4 lines)     │  ← body
+│ …                                      │
 │                                        │
-│  ▓▓▓▓▓▓▓░░░░░  progress (when running) │  ← progress (conditional)
+│              [🎤]   or   [Allow] [Deny]│  ← contextual bottom row
 └───────────────────────────────────────┘
 ```
-- **Identity** — provider avatar (initials in a tinted circle), session title,
-  `provider/model` label.
-- **State chip** — see states below.
-- **Body** — summary or latest turn; clamped to 3 lines in collapsed view.
-- **Progress** — linear bar, only while `Running`.
-- **Expand** — tap → full streaming view (L4).
 
-### Card states
-| State | Meaning | Visual |
-|---|---|---|
-| `Idle` | agent available, nothing running | neutral chip |
-| `Queued` | task accepted, not yet started | tertiary chip |
-| `Running` | working now | primary chip + progress bar |
-| `AwaitingInput` | agent asking a question | secondary chip + pulse |
-| `Done` | finished successfully | success-green chip *(deviation: spec said primary-tinted; changed to green so Done≠Running per AC-L1-2)* |
-| `Error` | failed / cancelled | error chip |
+- **Title** — full-width, `titleMedium`, Bold, `maxLines = 2`. No avatar circle.
+- **Subtitle** — `"provider/model · plan"` or `"provider/model · build"`.
+  Mode is always visible because the toggle is gesture-only (long-press).
+- **Body** — summary or latest action; clamped to 4 lines.
+- **Watermark** — `Image(imageVector, ContentScale.Crop, alpha=0.07)` filling
+  the card. `contentDescription = null`. Tinted with `onContainerColor`.
+- **Bottom row** — contextual:
+  - `AwaitingInput` → `ApprovalBar`: `[Allow]` (primary) + `[Deny]` (error),
+    each `weight(1f)`. Mic hidden — the gate IS the primary action.
+  - All other states → `MicButton` right-aligned.
+
+### State encoding (three redundant channels)
+1. **Card background colour** (primary signal — visible at a glance)
+2. **Watermark icon** (reinforces recognition)
+3. **Status dot rail** (left gutter — see §3)
+
+| State | Container | Icon | Meaning |
+|---|---|---|---|
+| `Idle` | `surfaceVariant` | `HourglassEmpty` | available, nothing running |
+| `Queued` | `tertiaryContainer` | `HourglassEmpty` | accepted, not started |
+| `Running` | `primaryContainer` | `Bolt` | working now |
+| `AwaitingInput` | `secondaryContainer` | `PauseCircleOutline` | permission gate |
+| `Done` | `DoneContainer*` (success-green) | `CheckCircle` | finished OK |
+| `Error` | `errorContainer` | `ErrorOutline` | failed / cancelled |
+
+Text uses matching `onContainerColor` for AA contrast. `Done` uses dedicated
+success-green tokens (not primary-tinted) so Done ≠ Running.
 
 ### Card lifecycle
-`created (Queued→Running) → (AwaitingInput↔Running) → Done | Error → archived`
-Cards are never silently deleted; Done/Error cards remain in the stack and can be
-dismissed by swipe (L2) or archived.
+`created (Queued→Running) → (AwaitingInput↔Running) → Done | Error → persists`
+Cards remain in the stack after completion. No dismiss/delete.
+
+### Mode toggle (Plan / Build)
+- **Long-press** card surface (outside mic/buttons) → haptic `LONG_PRESS` →
+  cycles Plan ↔ Build → snackbar confirms (`"plan mode"` / `"build mode"`).
+- **Plan** — agent proposes but does not execute (read-only). Maps to Paseo `plan`.
+- **Build** — agent executes, surfacing permission gates. Maps to Paseo `auto`.
+
+### Approval gates
+When `state == AwaitingInput`:
+- Body describes the requested action (e.g. "Wants to run `npm install`").
+- `[Allow]` → haptic `CONFIRM` → `state = Running`.
+- `[Deny]` → haptic `REJECT` → `state = Idle`.
+- In production (I0–I2), wires to `paseo_respond_to_permission` (allow/deny).
 
 ---
 
 ## 3. The stack — navigation model
 
-- A **roller deck** (`VerticalPager`, `pageSize = Fill`): the **focused** card sits
-  ~centred (~360 dp, ~62 % of canvas); up to **three previous cards fan out above
-  it**, each recessed (scale, alpha, lower z) so only their top edges peek. The
-  next card rests off-screen below and slides up into focus on swipe.
-- Motion is **upward**: swiping forward moves every card up — the current card
-  lifts into the peek fan, the next rises from below into focus. This mirrors a
-  physical rolodex/roller, not a flat list.
-- The r1 **scroll wheel** maps to **vertical swipe** on the NX1 (same gesture,
-  different input — this is the direct analogue and must feel equivalent).
-- **Tap** a card → expand to its streaming detail (L4).
-- **Back gesture** → collapse to deck.
-- **Swipe** (horizontal) on a card → dismiss/archive (with undo).
-- **Empty state** — a single centred prompt: "Hold the button to start."
+- A **roller deck** (`VerticalPager`, `pageSize = Fill`): the **focused** card
+  sits centred (~360 dp); up to **three previous cards fan out above**, each
+  recessed (alpha ramp, lower z-index). Next card slides up from below on swipe.
+- Cards are **solid** (alpha = 1 inside fan) and **same size** (no scale fan).
+  Peeks differ only in alpha and z-index.
+- **Status dot rail** — left gutter (start 6dp). Each dot's colour matches its
+  card's container colour. Focused = elongated pill (8×24dp); others = circles
+  (8×8dp). Dots bunched centre (`spacedBy(8dp, CenterVertical)`). Tap to jump.
+- Card content inset `start=40dp` to clear the rail.
+- **No tap-through** to detail. **No swipe-to-dismiss.** Scroll is the only
+  gesture on the deck.
+- **Empty state** — centred: "Hold the button to start."
 
-The stack *is* the multi-agent view (the Paseo differentiator). No separate
-"agents" tab — parallelism is shown by multiple cards each streaming.
+The stack *is* the multi-agent view — no separate "agents" tab.
 
 ---
 
 ## 4. Input model
 
-- **Push-to-talk is per-card.** Each card carries a small circular mic button
-  (bottom-right, ~44 dp, r1-orange when active). Press and hold to talk to
-  *that* agent; the transcript attaches to the associated session — this
-  matches the multi-agent model (§5), where every card is independently
-  addressable by voice.
-  - While held: pulsing r1-orange ring + filled mic; a "Listening…" line with
-    a live partial transcript streams onto the card body.
-  - On release: the final transcript commits to that session's `userInput`
-    and renders as a `primaryContainer` bubble on the card.
-- **Speech source:** Android `SpeechRecognizer` (on-device or Google service,
-  whichever the NX1 provides). Availability + every error code is handled; an
-  unavailable recognizer surfaces a snackbar, not a silent dead-end.
-- The earlier "global input-card overlay" model (a single raised layer) was
-  set aside in favour of per-card addressing.
-- **Text** entry is secondary — a per-card text affordance for silent/precise
-  input (post-L3).
-- Transcript review (Send/Edit on low confidence) is deferred until a
-  recognizer returns real confidence scores; for MVP a release commits directly.
+### Push-to-talk (per-card)
+Mic button bottom-right (~44dp, r1-orange when active). Hold to talk to *that*
+agent; transcript attaches to the associated session.
+- While held: pulsing ring + filled mic; "Listening…" line with live partial.
+- On release: final transcript commits to `session.userInput`, renders as tinted
+  bubble (`onContainerColor` at alpha 0.12).
+- Mic press triggers `CLOCK_TICK` haptic.
+- Speech source: Android `SpeechRecognizer`. All error codes handled.
+
+### Approval (per-card)
+`AwaitingInput` → `[Allow] [Deny]` replaces mic (see §2).
+
+### Mode toggle (per-card)
+Long-press cycles Plan ↔ Build (see §2).
+
+### Deferred
+- Text entry (per-card text affordance).
+- Transcript review (Send/Edit on low confidence).
+- New-card creation on voice commit (attaches to existing stub for now).
 
 ---
 
@@ -121,25 +158,24 @@ The stack *is* the multi-agent view (the Paseo differentiator). No separate
 | Borrow from rabbitOS | Diverge (because agents) |
 |---|---|
 | Home = full-screen launcher | Cards are stateful, not ephemeral |
-| Push-to-talk as primary input | Bodies **stream** and grow over time |
-| Scroll/swipe card navigation | Cards persist after completion |
+| Push-to-talk as primary input | Bodies stream and grow over time |
+| Scroll card navigation | Cards persist after completion |
 | Bold typography, single focus | Multiple cards run concurrently |
-| Gesture nav (back, home) | Per-card actions: stop, follow-up |
 | Card-based results | Card = session, not result |
+| | **Remote controller:** approve/deny from device |
+| | **Mode toggle:** Plan vs Build per card |
+| | **No detail drill-in:** card IS the interface |
 
 ---
 
-## 6. What we test first (the unknowns)
+## 6. What we test (the unknowns)
 
-These are the questions L1–L4 answer with real testers:
-
-1. **Legibility at 270 dp** — can a person read identity + body + state in <1 s?
-2. **State comprehension** — do the six states read as distinct without a legend?
-3. **One-handed reach** — is primary action (start/input) in the thumb arc?
-4. **"Card = session" model** — does a non-dev tester understand that a card is a
-   live thing they can return to, not a finished answer? *(most important)*
-5. **Streaming legibility** — is a live-updating body readable, not nauseating?
-6. **PTT feel** — does hold-to-talk + listening card feel "like an r1"?
+1. **Legibility at 270 dp** — **L1: PASS** (non-dev, all 6 states identified).
+2. **State comprehension** — **L1: PASS** (distinguishable without legend).
+3. **One-handed reach** — **L2: PASS** (centred card, mic bottom-right).
+4. **"Card = session"** — validated informally; formal test deferred.
+5. **Streaming legibility** — **deferred** (L4 on hold).
+6. **PTT feel** — **L3: "acceptable for now"** (user confirmed 2026-08-09).
 
 ---
 
@@ -147,12 +183,21 @@ These are the questions L1–L4 answer with real testers:
 
 Implemented in `apps/nx1-launcher/.../ui/theme/`:
 
-- **Primary:** `R1Orange #FF5A1F` (the r1 signature), `onPrimary` white.
+- **Primary:** `R1Orange #FF5A1F`, `onPrimary` white.
 - **Surfaces:** `Paper #F7F5F2` (light) / `Ink #111014` (dark).
-- **Shape:** cards `RoundedCornerShape(28.dp)` (r1 uses large radii).
-- **Type:** system default at L0; custom type scale deferred to polish.
-- State tints map to Material3 `*Container`/`on*Container` roles (AA-safe at
-  `labelSmall`); **Done** uses dedicated success-green tokens
-  (`DoneContainerLight/OnDoneLight`, `…Dark`) ≈ 6:1 because white-on-r1-orange
-  and orange-on-wash both fail AA (4.5:1) for small text. `AwaitingInput` chip
-  pulses (alpha 1↔0.45, 900 ms) per §2.
+- **Shape:** cards `RoundedCornerShape(28.dp)`.
+- **Card backgrounds:** Material3 `*Container` colours per state (see §2 table).
+  Text uses matching `on*Container` for AA contrast.
+- **Done:** dedicated success-green tokens ≈ 6:1.
+- **Watermark:** state icon at `alpha = 0.07`, `ContentScale.Crop`,
+  tinted with `onContainerColor`.
+- **Status dot rail:** dots use `containerColor` per state. Focused = pill
+  (`RoundedCornerShape(50)`); unfocused = `CircleShape`.
+
+### Haptics (`ui/Haptics.kt`)
+| Action | Constant | API |
+|---|---|---|
+| Long-press (mode cycle) | `LONG_PRESS` | 3+ |
+| Allow | `CONFIRM` | 30+ (fallback `LONG_PRESS`) |
+| Deny | `REJECT` | 30+ (fallback `LONG_PRESS`) |
+| Mic press | `CLOCK_TICK` | 21+ |

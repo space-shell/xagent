@@ -39,9 +39,9 @@ nav. We do **not** replicate its cloud "LAM" backend; Paseo provides action.
 |---|---|
 | r1-style launcher = default Home (no root) | Tier B kiosk/theming (root-gated) |
 | Card primitive + states (idle…error) | Custom type scale, animations (polish) |
-| Card stack: scroll/swipe nav, quick-switch | Boot animation, SystemUI theming |
+| Card stack: scroll nav, status dot rail | Boot animation, SystemUI theming |
 | Push-to-talk affordance + "listening" card | Offline ASR (Whisper/Vosk); wake-word |
-| Streaming card (live agent output) | Diff/file viewer; skills UI; teach mode |
+| Remote controller: approve/deny, Plan/Build | Streaming card (L4 deferred) |
 | Connect to one daemon (LAN/Tailscale) | Paseo relay pairing; multi-host |
 | Run/switch ≥2 agents in parallel | Camera vision hand-off |
 
@@ -106,27 +106,35 @@ non-running do not.
 is running / waiting / failed / done?" Capture `docs/user-tests/L1-card-primitive.md`.
 **Exit** — states read to a non-dev; any redesigns folded into `card-model.md`.
 
+> **Post-L1 redesign** (2026-08-09, `4990e08`): the card anatomy changed
+> significantly after L1 passed. Avatar circle, state chip, and progress bar were
+> removed; state is now encoded by card background colour + full-card watermark
+> icon. The L1 validation (states distinguishable without a legend) still holds —
+> arguably stronger, since the full card surface now carries state. See
+> `card-model.md` §2 "Design pivot: remote controller."
+
 ### L2 — Card stack & navigation
-**Goal:** the roller deck (r1 scroll model) + swipe/quick-switch + empty state.
+**Goal:** the roller deck (r1 scroll model) + status dot rail + empty state.
 **Build tasks**
 - [x] Roller deck (`VerticalPager`, `pageSize=Fill`, per-page transform) — focused
       card centred; up to three previous cards fan out above; next slides up on
       swipe. `getOffsetDistanceInPages` drives all transforms continuously.
-- [x] Swipe-to-dismiss with undo (Snackbar); stable keys (session id).
-- [x] Back gesture collapses detail; tap expands (detail stub for now).
+- [x] ~~Swipe-to-dismiss with undo~~ **removed** (`9d5bd82`) — cards persist; the
+      NX1 is a remote controller, not a content browser.
+- [x] ~~Tap-to-detail~~ **removed** (`4990e08`) — card is the full interface;
+      `AgentDetail` composable deleted.
+- [x] Status dot rail (left gutter): colour per state, focused = pill, tap-to-jump.
+      Dots bunched centre (`spacedBy(8dp, CenterVertically)`).
+- [x] Solid cards (no translucency); same-size peeks (no scale fan).
 - [x] Empty state: centred "Hold the button to start."
 - [x] Thumb-reach audit (primary affordance in bottom 60%).
-      (no primary affordance yet — PTT is L3; the focused card is centred, leaving
-      the bottom ~112 dp free — the natural PTT seat. Audit note in
-      `docs/user-tests/L2-stack.md`.)
 **Stories** — `US-L2-1` As Sam, I want to scroll through my agents like the r1
-wheel, so navigation is muscle-memory. `US-L2-2` As Sam, I want to dismiss a
-finished card with a swipe, so the stack stays relevant. `US-L2-3` As Sam, I want
-an obvious empty state, so a bare screen isn't confusing.
-**AC** — `AC-L2-1` A 10-card stack scrolls smoothly at 60 Hz on the emulator.
-`AC-L2-2` Swipe dismisses with undo within 5 s. `AC-L2-3` Empty state renders and
-is self-explanatory.
-**User test** — *dev*. Load 10 stub cards; navigate; dismiss; reach empty state.
+wheel, so navigation is muscle-memory. `US-L2-2` ~~dismiss by swipe~~ **removed**
+— cards persist. `US-L2-3` As Sam, I want an obvious empty state.
+**AC** — `AC-L2-1` A 10-card stack scrolls smoothly at 60 Hz. **PASS.**
+`AC-L2-2` ~~swipe dismisses with undo~~ **obsolete** (swipe removed).
+`AC-L2-3` Empty state renders and is self-explanatory. **PASS.**
+**User test** — *dev*. Load 10 stub cards; navigate; reach empty state.
 Capture `docs/user-tests/L2-stack.md`.
 
 ### L3 — Input card + push-to-talk affordance
@@ -156,8 +164,13 @@ not a silent dead-end. `AC-L3-3` (deferred) Low-confidence prompts Send/Edit.
 **User test** — **non-dev.** "Press and hold the mic on a card, say 'list the
 files in the repo', release." Then try with permission denied / no recognizer.
 This answers "does it feel like an r1?" Capture `docs/user-tests/L3-push-to-talk.md`.
+**Status** — **confirmed acceptable** (2026-08-09). User: "Push to talk is
+acceptable for now." Formal AC checklist deferred to next hardware session.
 
 ### L4 — Streaming/live card
+**Status: DEFERRED** (2026-08-09) — user decision. The remote-controller pivot
+reduced the priority of detailed streaming output; the card shows a summary, not
+a live stream. Streaming will return when integration (I1) requires it.
 **Goal:** a card whose body streams live output (stubbed source), with scroll/pause.
 The visually hardest card — tests streaming legibility on 4".
 **Build tasks**

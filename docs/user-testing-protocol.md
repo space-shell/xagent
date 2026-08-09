@@ -1,7 +1,7 @@
 # User Testing Protocol
 
-Every MVP increment (M0–M5) ships with a user test. This document defines **how**
-those tests are run so results are comparable across increments.
+Every MVP increment (L0–L4, I0–I2) ships with a user test. This document defines
+**how** those tests are run so results are comparable across increments.
 
 ## Principle
 
@@ -11,16 +11,16 @@ task and we observed what confused them" is done.
 
 ## Tester
 
-- **Primary (M0–M3):** the developer, acting as a developer-user (owns the daemon,
+- **Primary (L0–L3):** the developer, acting as a developer-user (owns the daemon,
   knows the stack). Catches functional gaps.
-- **Secondary (M4–M5):** one person who is **not** the developer, ideally a
+- **Secondary (L4–I2):** one person who is **not** the developer, ideally a
   developer who has never used Paseo. Catches UX/usability gaps — this is where
   the r1-feel is judged.
 - Write the tester's role and familiarity in the capture.
 
 ## Per-increment test structure
 
-Each test is captured in `docs/user-tests/M{n}-{slug}.md` using this template:
+Each test is captured in `docs/user-tests/{L|I}{n}-{slug}.md` using this template:
 
 ```
 # User Test — M{n} {title}
@@ -43,10 +43,10 @@ Daemon host:
 ## Findings
 - What worked:
 - What confused / broke:
-- Changes required before M{n+1}:
+- Changes required before the next increment:
 
 ## Verdict
-[ ] PASS — proceed to M{n+1}
+[ ] PASS — proceed to next increment
 [ ] FAIL — list blockers
 ```
 

@@ -41,9 +41,13 @@ capture.
 
 ## Result
 
-_(to fill in after running)_
+**Confirmed acceptable** (2026-08-09).
 
-- AC-L3-1: pass / fail — notes
-- AC-L3-2: pass / fail — notes
-- AC-L3-3: deferred
-- r1-feel: _verbatim_
+- AC-L3-1: not formally run — deferred to next hardware session.
+- AC-L3-2: not formally run — deferred to next hardware session.
+- AC-L3-3: deferred (as planned).
+- r1-feel: User stated: *"Push to talk is acceptable for now."*
+
+The L3 increment is considered closed for the UI-first phase. The formal AC
+checklist can be run alongside the next on-device test session if desired, but
+it is not blocking.

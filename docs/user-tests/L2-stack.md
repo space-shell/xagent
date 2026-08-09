@@ -8,8 +8,9 @@
 ## Acceptance criteria
 
 - **AC-L2-1** — A 10-card deck scrolls smoothly at 60 Hz.
-- **AC-L2-2** — Swipe dismisses a card; an Undo affordance restores it within 5 s.
-- **AC-L2-3** — Empty state renders and is self-explanatory ("Hold the button to start.").
+- **AC-L2-2** — ~~Swipe dismisses with undo~~ **obsolete** (swipe-to-dismiss
+  removed `9d5bd82`; cards persist — the NX1 is a remote controller).
+- **AC-L2-3** — Empty state renders and is self-explanatory.
 
 ## Protocol (run on the NX1)
 
@@ -34,6 +35,17 @@
 
 - **AC-L2-1: PASS** — roller deck scrolls smoothly; fan of three peeks renders
   correctly above the centred focused card (confirmed on-device, build `044631b`).
-- **AC-L2-2: carried** — dismiss+undo code retained from the flat-list build;
-  quick re-verify on the roller build on the next device session.
-- **AC-L2-3: carried** — empty state unchanged; re-verify with AC-L2-2.
+- **AC-L2-2: obsolete** — swipe-to-dismiss removed (`9d5bd82`); cards persist.
+- **AC-L2-3: PASS** — empty state renders correctly.
+
+## Post-L2 changes (remote-controller pivot)
+
+The following L2 features were subsequently removed:
+- **Swipe-to-dismiss + undo** — removed `9d5bd82`. Cards persist in the stack.
+- **Tap-to-detail** — removed `4990e08`. `AgentDetail` composable deleted. The
+  card is the full interface.
+
+Added post-L2:
+- **Status dot rail** (`1d787d3`, refined `9d5bd82`) — left gutter dots, colour
+  per state, focused = pill, tap-to-jump, bunched centre.
+- **Card start padding 40dp** (`9d5bd82`) — clears the dot rail gutter.

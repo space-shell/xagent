@@ -95,14 +95,24 @@ The stack *is* the multi-agent view (the Paseo differentiator). No separate
 
 ## 4. Input model
 
-- **Push-to-talk** is primary. The side programmable key (or an on-screen
-  hold-to-talk button on emulator) raises an **input card** overlay:
-  - pulsing "listening…" state
-  - live partial transcript
-  - **release to commit / drag to cancel**
-- **Text** is secondary — a text-entry card for silent/precise input.
-- Transcript review: if recognition confidence is low, show the transcript with a
-  **Send / Edit** choice before committing (no launching garbage).
+- **Push-to-talk is per-card.** Each card carries a small circular mic button
+  (bottom-right, ~44 dp, r1-orange when active). Press and hold to talk to
+  *that* agent; the transcript attaches to the associated session — this
+  matches the multi-agent model (§5), where every card is independently
+  addressable by voice.
+  - While held: pulsing r1-orange ring + filled mic; a "Listening…" line with
+    a live partial transcript streams onto the card body.
+  - On release: the final transcript commits to that session's `userInput`
+    and renders as a `primaryContainer` bubble on the card.
+- **Speech source:** Android `SpeechRecognizer` (on-device or Google service,
+  whichever the NX1 provides). Availability + every error code is handled; an
+  unavailable recognizer surfaces a snackbar, not a silent dead-end.
+- The earlier "global input-card overlay" model (a single raised layer) was
+  set aside in favour of per-card addressing.
+- **Text** entry is secondary — a per-card text affordance for silent/precise
+  input (post-L3).
+- Transcript review (Send/Edit on low confidence) is deferred until a
+  recognizer returns real confidence scores; for MVP a release commits directly.
 
 ---
 

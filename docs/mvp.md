@@ -130,23 +130,32 @@ is self-explanatory.
 Capture `docs/user-tests/L2-stack.md`.
 
 ### L3 — Input card + push-to-talk affordance
-**Goal:** the r1 defining interaction — hold-to-talk raises an input card with a
-pulsing "listening" state and transcript review. First **non-dev**-judged increment.
+**Goal:** the r1 defining interaction — hold-to-talk captures speech and attaches
+the transcript to the addressed card. First **non-dev**-judged increment.
 **Build tasks**
-- [ ] Hold-to-talk button (emulator surface; HW key is blocked). Haptic + tone.
-- [ ] Input card overlay: pulsing listening state, live partial transcript, cancel.
-- [ ] Low-confidence transcript → Send/Edit confirmation before commit.
-- [ ] Text-entry card as secondary input.
-- [ ] On commit, append a new `Queued` card to the stack (stub; no daemon yet).
-**Stories** — `US-L3-1` As Sam, I want to press and speak to start a task, hands-free.
-`US-L3-2` As Sam, I want to see my words captured before committing. `US-L3-3` As
-Sam, I want to cancel a misfire.
-**AC** — `AC-L3-1` Hold→speak→release produces a transcript and a new card.
-`AC-L3-2` Low-confidence prompts Send/Edit, not auto-launch. `AC-L3-3` Cancel
-discards and starts nothing.
-**User test** — **non-dev.** "Press and hold, say 'list the files in the repo',
-release." Then cancel. Then an ambiguous one. This answers "does it feel like an
-r1?" Capture `docs/user-tests/L3-push-to-talk.md`.
+- [x] Per-card mic button (small circle, bottom-right of each card); hold via
+      `detectTapGestures.onPress` with try/finally to guarantee stop on cancel.
+- [x] Real Android `SpeechRecognizer` via `VoiceController` (Compose-observable
+      state: `isListening`, `partialText`, `error`; handles availability + all
+      error codes). `be7f9e2`.
+- [x] Live partial transcript streams onto the card ("Listening…" line); on
+      release the final transcript commits to `session.userInput` and renders
+      as a `primaryContainer` bubble.
+- [x] `RECORD_AUDIO` runtime permission (first-press prompt; resumes listening
+      on grant).
+- [ ] Text-entry card as secondary input (deferred to post-L3).
+- [ ] Low-confidence Send/Edit review (deferred — needs recognizer confidence).
+- [ ] On commit, create a new `Queued` card (deferred — currently attaches to
+      the existing stub card; new-card creation waits on I1).
+**Stories** — `US-L3-1` As Sam, I want to press and speak to steer an agent,
+hands-free. `US-L3-2` As Sam, I want to see my words captured on the card before
+it acts. `US-L3-3` As Sam, I want a misfire to fail gracefully, not silently.
+**AC** — `AC-L3-1` Hold→speak→release produces a transcript on the addressed
+card. `AC-L3-2` Permission denial / unavailable recognizer surfaces a message,
+not a silent dead-end. `AC-L3-3` (deferred) Low-confidence prompts Send/Edit.
+**User test** — **non-dev.** "Press and hold the mic on a card, say 'list the
+files in the repo', release." Then try with permission denied / no recognizer.
+This answers "does it feel like an r1?" Capture `docs/user-tests/L3-push-to-talk.md`.
 
 ### L4 — Streaming/live card
 **Goal:** a card whose body streams live output (stubbed source), with scroll/pause.

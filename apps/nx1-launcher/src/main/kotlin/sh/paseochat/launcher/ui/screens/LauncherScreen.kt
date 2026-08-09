@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import kotlin.math.absoluteValue
 import kotlinx.coroutines.launch
 import sh.paseochat.launcher.ui.components.AgentCard
@@ -100,7 +101,7 @@ fun LauncherScreen() {
                 state = pagerState,
                 modifier = Modifier.padding(padding),
                 pageSize = PageSize.Fixed(DECK_PAGE_HEIGHT),
-                pageSpacing = 8.dp,
+                pageSpacing = (-48).dp,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
                 beyondViewportPageCount = 1,
                 key = { sessions[it].id },
@@ -112,6 +113,7 @@ fun LauncherScreen() {
                 Box(
                     Modifier
                         .fillMaxSize()
+                        .zIndex(if (pageIndex == pagerState.currentPage) 1f else 0f)
                         .graphicsLayer {
                             scaleX = 1f - 0.06f * t
                             scaleY = 1f - 0.06f * t

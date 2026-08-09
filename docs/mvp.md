@@ -109,10 +109,12 @@ is running / waiting / failed / done?" Capture `docs/user-tests/L1-card-primitiv
 ### L2 — Card stack & navigation
 **Goal:** the vertical stack (the r1 scroll model) + swipe/quick-switch + empty state.
 **Build tasks**
-- [ ] `LazyColumn` stack, newest-on-top, stable keys, swipe-to-dismiss (with undo).
-- [ ] Back gesture collapses detail; tap expands (detail stub for now).
-- [ ] Empty state: centered "Hold the button to start."
-- [ ] Thumb-reach audit (primary affordance in bottom 60%).
+- [x] `LazyColumn` stack, newest-on-top, stable keys, swipe-to-dismiss (with undo).
+- [x] Back gesture collapses detail; tap expands (detail stub for now).
+- [x] Empty state: centered "Hold the button to start."
+- [x] Thumb-reach audit (primary affordance in bottom 60%).
+      (no primary affordance yet — PTT is L3; undo Snackbar sits bottom, empty
+      prompt centered. Audit note in `docs/user-tests/L2-stack.md`.)
 **Stories** — `US-L2-1` As Sam, I want to scroll through my agents like the r1
 wheel, so navigation is muscle-memory. `US-L2-2` As Sam, I want to dismiss a
 finished card with a swipe, so the stack stays relevant. `US-L2-3` As Sam, I want

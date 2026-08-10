@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
@@ -305,7 +306,8 @@ fun LauncherScreen() {
                         derivedStateOf {
                             val oc = offset.value - pageIndex
                             val kc = abs(oc)
-                            1f - Z_PER_RANK * kc
+                            val outgoingBias = if (oc > 0f) 0.1f else 0f
+                            1f - Z_PER_RANK * kc + outgoingBias
                         }
                     }
 
@@ -411,6 +413,11 @@ fun LauncherScreen() {
                                             } catch (e: ActivityNotFoundException) {
                                                 scope.launch {
                                                     snackbarHostState.showSnackbar("Paseo app not installed")
+                                                }
+                                            } catch (e: Throwable) {
+                                                Log.w("LauncherScreen", "deep link failed", e)
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("Paseo failed to open: ${e.message ?: e.javaClass.simpleName}")
                                                 }
                                             }
                                         }

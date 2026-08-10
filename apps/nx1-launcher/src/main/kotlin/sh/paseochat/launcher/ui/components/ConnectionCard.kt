@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -284,7 +285,7 @@ fun ConnectionCard(
                                     onScanned = onQrScanned,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(220.dp)
+                                        .aspectRatio(1f)
                                         .clip(RoundedCornerShape(16.dp)),
                                 )
                             } else {

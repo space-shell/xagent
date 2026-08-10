@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.dp
 private const val PREFS_NAME = "daemon"
 private const val SHORTCUTS_KEY = "app_shortcuts"
 private const val MAX_SHORTCUTS = 4
-private val DarkGreyBorder = Color(0xFF444444)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -100,7 +99,7 @@ fun AppsCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, DarkGreyBorder, RoundedCornerShape(28.dp)),
+            .border(2.dp, cs.onSurface, RoundedCornerShape(28.dp)),
         shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = cs.surfaceContainerHighest),
     ) {

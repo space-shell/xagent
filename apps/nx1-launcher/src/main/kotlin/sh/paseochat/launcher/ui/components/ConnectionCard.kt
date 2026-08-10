@@ -59,7 +59,6 @@ import sh.paseochat.launcher.model.ConnectionType
 import sh.paseochat.launcher.ui.rememberHaptics
 
 private val DeleteRed = Color(0xFFE57373)
-private val DarkGreyBorder = Color(0xFF444444)
 
 @Composable
 fun ConnectionCard(
@@ -161,12 +160,11 @@ fun ConnectionCard(
             }
         }
 
-        val borderColor = DarkGreyBorder
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { IntOffset(visualOffset.roundToInt(), 0) }
-                .border(1.dp, borderColor, RoundedCornerShape(28.dp)),
+                .border(2.dp, cs.onSurface, RoundedCornerShape(28.dp)),
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = containerColor),
         ) {

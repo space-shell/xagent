@@ -1,0 +1,97 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            .gradle
+            apps/nx1-launcher/build
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'gradle/**', 'flake.nix') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew || true
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xagent-debug-apk
+          path: apps/nx1-launcher/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            .gradle
+            apps/nx1-launcher/build
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'gradle/**', 'flake.nix') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APK to include tag
+        run: |
+          mv apps/nx1-launcher/build/outputs/apk/debug/app-debug.apk \
+             apps/nx1-launcher/build/outputs/apk/debug/xagent-${{ github.ref_name }}-debug.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/nx1-launcher/build/outputs/apk/debug/xagent-${{ github.ref_name }}-debug.apk
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

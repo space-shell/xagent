@@ -65,6 +65,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
@@ -84,6 +85,7 @@ import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
 import sh.paseochat.launcher.model.ConnectionProfile
 import sh.paseochat.launcher.model.ConnectionType
+import sh.paseochat.launcher.model.SidebarSide
 import sh.paseochat.launcher.model.parseOfferFromUrl
 import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.ui.components.AppsCard
@@ -96,6 +98,7 @@ private val DECK_CARD_HEIGHT = 360.dp
 private val FAN_STEP = 32.dp
 private val BELOW_STEP = 480.dp
 private const val Z_PER_RANK = 0.20f
+private const val SWIPE_SENSITIVITY = 1.6f
 
 private sealed class DeckPage(val key: String) {
     data class Agent(val session: AgentSession) : DeckPage(session.id)
@@ -130,6 +133,18 @@ fun LauncherScreen() {
     val prefs = remember { context.getSharedPreferences("daemon", Context.MODE_PRIVATE) }
     var profiles by remember { mutableStateOf(loadProfiles(prefs)) }
     var hideStatusBar by remember { mutableStateOf(prefs.getBoolean("hide_status_bar", false)) }
+    var sidebarSide by remember {
+        mutableStateOf(
+            if (prefs.getString("sidebar_side", "right") == "left") SidebarSide.Left
+            else SidebarSide.Right,
+        )
+    }
+    LaunchedEffect(sidebarSide) {
+        prefs.edit().putString(
+            "sidebar_side",
+            if (sidebarSide == SidebarSide.Left) "left" else "right",
+        ).apply()
+    }
 
     LaunchedEffect(Unit) {
         var current = profiles
@@ -246,7 +261,7 @@ fun LauncherScreen() {
                         source: NestedScrollSource,
                     ): Offset {
                         if (pageHeightPx <= 0f || available.y == 0f) return Offset.Zero
-                        val delta = available.y / pageHeightPx
+                        val delta = (available.y / pageHeightPx) * SWIPE_SENSITIVITY
                         val target = (offset.value + delta).coerceIn(0f, maxIndex.toFloat())
                         scope.launch { offset.snapTo(target) }
                         return available
@@ -254,7 +269,7 @@ fun LauncherScreen() {
 
                     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
                         if (pageHeightPx <= 0f || available.y == 0f) return Velocity.Zero
-                        val predicted = offset.value + (available.y / pageHeightPx) * 0.15f
+                        val predicted = offset.value + (available.y / pageHeightPx) * 0.15f * SWIPE_SENSITIVITY
                         val target = predicted.roundToInt().coerceIn(0, maxIndex).toFloat()
                         offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
                         return available
@@ -274,7 +289,7 @@ fun LauncherScreen() {
                             onVerticalDrag = { change, dy ->
                                 velocityTracker.addPosition(change.uptimeMillis, change.position)
                                 if (pageHeightPx > 0f) {
-                                    val delta = -dy / pageHeightPx
+                                    val delta = (-dy / pageHeightPx) * SWIPE_SENSITIVITY
                                     val target = (offset.value + delta).coerceIn(0f, maxIndex.toFloat())
                                     scope.launch { offset.snapTo(target) }
                                 }
@@ -283,7 +298,7 @@ fun LauncherScreen() {
                             onDragEnd = {
                                 if (pageHeightPx > 0f) {
                                     val v = velocityTracker.calculateVelocity().y
-                                    val predicted = offset.value - (v / pageHeightPx) * 0.15f
+                                    val predicted = offset.value - (v / pageHeightPx) * 0.15f * SWIPE_SENSITIVITY
                                     val target = predicted.roundToInt().coerceIn(0, maxIndex).toFloat()
                                     scope.launch {
                                         offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
@@ -301,31 +316,39 @@ fun LauncherScreen() {
                         )
                     }
             ) {
-                pages.forEachIndexed { pageIndex, page ->
-                    val zIndex by remember(pageIndex, pages.size) {
-                        derivedStateOf {
-                            val oc = offset.value - pageIndex
-                            val kc = abs(oc)
-                            val outgoingBias = if (oc > 0f) 0.1f else 0f
-                            1f - Z_PER_RANK * kc + outgoingBias
-                        }
+                    val cardPaddingStart: Dp
+                    val cardPaddingEnd: Dp
+                    if (sidebarSide == SidebarSide.Left) {
+                        cardPaddingStart = 40.dp; cardPaddingEnd = 16.dp
+                    } else {
+                        cardPaddingStart = 16.dp; cardPaddingEnd = 40.dp
                     }
 
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(DECK_CARD_HEIGHT)
-                            .padding(start = 40.dp, end = 16.dp)
-                            .zIndex(zIndex)
-                            .graphicsLayer {
+                    pages.forEachIndexed { pageIndex, page ->
+                        val zIndex by remember(pageIndex, pages.size) {
+                            derivedStateOf {
                                 val oc = offset.value - pageIndex
                                 val kc = abs(oc)
-                                val peek = oc <= 0f
-                                translationY = if (peek) focusedTopPx + fanStepPx * kc
-                                               else focusedTopPx - belowStepPx * oc
-                                alpha = if (peek) (4f + oc).coerceIn(0f, 1f) else 1f
-                            },
-                    ) {
+                                val outgoingBias = if (oc > 0f) 0.1f else 0f
+                                1f - Z_PER_RANK * kc + outgoingBias
+                            }
+                        }
+
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(DECK_CARD_HEIGHT)
+                                .padding(start = cardPaddingStart, end = cardPaddingEnd)
+                                .zIndex(zIndex)
+                                .graphicsLayer {
+                                    val oc = offset.value - pageIndex
+                                    val kc = abs(oc)
+                                    val peek = oc <= 0f
+                                    translationY = if (peek) focusedTopPx + fanStepPx * kc
+                                                   else focusedTopPx - belowStepPx * oc
+                                    alpha = if (peek) (4f + oc).coerceIn(0f, 1f) else 1f
+                                },
+                        ) {
                         when (page) {
                             is DeckPage.Agent -> {
                                 val session = page.session
@@ -434,6 +457,8 @@ fun LauncherScreen() {
                                 SettingsCard(
                                     hideStatusBar = hideStatusBar,
                                     onHideStatusBarChange = { hideStatusBar = it },
+                                    sidebarSide = sidebarSide,
+                                    onSidebarSideChange = { sidebarSide = it },
                                     onAddConnection = {
                                         val newProfile = ConnectionProfile(
                                             id = UUID.randomUUID().toString(),
@@ -523,8 +548,11 @@ fun LauncherScreen() {
                     }
                 },
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 4.dp)
+                    .align(if (sidebarSide == SidebarSide.Left) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(
+                        start = if (sidebarSide == SidebarSide.Left) 4.dp else 0.dp,
+                        end = if (sidebarSide == SidebarSide.Right) 4.dp else 0.dp,
+                    )
                     .fillMaxHeight(),
             )
         }

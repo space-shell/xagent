@@ -1,6 +1,6 @@
 # xagent
 
-A Rabbit-r1-style Android launcher that orchestrates **Paseo** coding-agent
+A Rabbit-r1-inspired Android launcher that orchestrates **Paseo** coding-agent
 sessions running on a host machine. (The app is called **xagent**; **Paseo** is
 the daemon it talks to.)
 
@@ -41,6 +41,17 @@ nix develop                         # enter devshell (jdk17, gradle, android-sdk
 gradle :app:assembleDebug           # build the launcher APK
 adb install -r apps/nx1-launcher/build/outputs/apk/debug/app-debug.apk
 ```
+
+Or with the Gradle wrapper (no Nix required — needs JDK 17 and ANDROID_HOME):
+
+```sh
+./gradlew :app:assembleDebug
+```
+
+CI is configured in [`.github/workflows/android.yml`](.github/workflows/android.yml):
+every push to `main` and every PR build a debug APK and upload it as a workflow
+artifact; every tag matching `v*` publishes a GitHub Release with the APK
+attached.
 
 Previews (no device needed) live in
 `apps/nx1-launcher/.../ui/components/AgentCard.kt` — `@Preview(widthDp = 270,

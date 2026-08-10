@@ -1,6 +1,6 @@
 # MVP Plan — xagent (UI-first)
 
-A Rabbit-r1-style launcher on a physically small Android device that orchestrates
+A Rabbit-r1-inspired launcher on a physically small Android device that orchestrates
 Paseo coding agents running on a host machine.
 
 > **Target form factor.** This project is aimed at physically small Android
@@ -10,7 +10,7 @@ Paseo coding agents running on a host machine.
 > factor.
 
 **Approach:** the Paseo daemon and its official app are a known quantity. The
-unknown — and the USP — is the **r1-style card UI on a small screen**. So we
+unknown — and the USP — is the **r1-inspired card UI on a small screen**. So we
 build and user-test the **launcher UI first, driven by stub data**, and
 integrate the real daemon only after the card model is validated.
 
@@ -44,7 +44,7 @@ action.
 
 | In scope (MVP) | Out of scope (post-MVP) |
 |---|---|
-| r1-style launcher = default Home (no root) | Tier B kiosk/theming (root-gated) |
+| r1-inspired launcher = default Home (no root) | Tier B kiosk/theming (root-gated) |
 | Card primitive + states (idle…error) | Custom type scale, animations (polish) |
 | Card stack: scroll nav, status dot rail | Boot animation, SystemUI theming |
 | Push-to-talk affordance + "listening" card | Offline ASR (Whisper/Vosk); wake-word |

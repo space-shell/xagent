@@ -91,7 +91,6 @@ import sh.paseochat.launcher.ui.theme.R1Orange
 fun stateDotColor(state: AgentState): Color = stateMeta(state).containerColor
 
 private val ArchiveRed = Color(0xFFE57373)
-private val DarkGreyBorder = Color(0xFF444444)
 
 @Composable
 fun AgentCard(
@@ -118,6 +117,7 @@ fun AgentCard(
     val haptics = rememberHaptics()
     val density = LocalDensity.current
     val maxSwipePx = with(density) { 120.dp.toPx() }
+    val borderColor = MaterialTheme.colorScheme.onSurface
 
     var isDragging by remember(session.id) { mutableStateOf(false) }
     var swipeOffset by remember(session.id) { mutableFloatStateOf(0f) }
@@ -172,12 +172,11 @@ fun AgentCard(
             }
         }
 
-        val borderColor = DarkGreyBorder
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { IntOffset(visualOffset.roundToInt(), 0) }
-                .border(1.dp, borderColor, RoundedCornerShape(28.dp))
+                .border(2.dp, borderColor, RoundedCornerShape(28.dp))
                 .pointerInput(session.id, session.mode) {
                     detectTapGestures(
                         onTap = {
@@ -243,7 +242,7 @@ fun AgentCard(
                                 session.summary,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = meta.onContainerColor,
-                                maxLines = 4,
+                                maxLines = 16,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }

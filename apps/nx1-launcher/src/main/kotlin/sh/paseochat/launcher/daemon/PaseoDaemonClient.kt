@@ -616,7 +616,21 @@ class PaseoDaemonClient(
                 return
             }
             if (relayMode && e2eeReady) {
-                Log.w(TAG, "unexpected text message after E2EE ready: ${text.take(80)}")
+                val key = e2eeSharedKey
+                if (key != null) {
+                    val ciphertext = try {
+                        android.util.Base64.decode(text, android.util.Base64.DEFAULT)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "E2EE text frame not base64: ${text.take(40)}")
+                        return
+                    }
+                    val plaintext = E2eeCrypto.decrypt(ciphertext, key)
+                    if (plaintext != null) {
+                        handleMessage(String(plaintext, Charsets.UTF_8))
+                    } else {
+                        Log.w(TAG, "E2EE text decrypt failed (${ciphertext.size} bytes)")
+                    }
+                }
                 return
             }
             handleMessage(text)

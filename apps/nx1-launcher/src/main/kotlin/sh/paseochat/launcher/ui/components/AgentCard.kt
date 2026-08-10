@@ -123,7 +123,7 @@ fun AgentCard(
     var swipeOffset by remember(session.id) { mutableFloatStateOf(0f) }
     val visualOffset by animateFloatAsState(
         targetValue = swipeOffset,
-        animationSpec = if (isDragging) snap() else spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        animationSpec = if (isDragging) snap() else spring(dampingRatio = Spring.DampingRatioLowBouncy),
         label = "swipe",
     )
 

@@ -121,7 +121,10 @@ class ConnectionManager(
     }
 
     private fun remerge() {
-        _allAgents.value = connections.entries.flatMap { (profileId, entry) ->
+        val sortedEntries = connections.entries.sortedBy { entry ->
+            if (entry.value.profile.connectionType == ConnectionType.DIRECT) 0 else 1
+        }
+        val merged = sortedEntries.flatMap { (profileId, entry) ->
             entry.client.agents.value.map { session ->
                 session.copy(
                     connectionId = profileId,
@@ -130,6 +133,8 @@ class ConnectionManager(
                 )
             }
         }
+        val seen = HashSet<String>()
+        _allAgents.value = merged.filter { seen.add(it.id) }.toList()
     }
 
     private fun clientForAgent(agentId: String): PaseoDaemonClient? {

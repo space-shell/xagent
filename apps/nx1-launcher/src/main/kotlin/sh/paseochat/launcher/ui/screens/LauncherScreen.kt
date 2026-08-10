@@ -11,13 +11,16 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,9 +28,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.pager.PageSize
-import androidx.compose.foundation.pager.VerticalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Dashboard
@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,13 +50,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
@@ -63,6 +71,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
 import java.util.UUID
@@ -204,49 +213,118 @@ fun LauncherScreen() {
             listOf(DeckPage.Apps, DeckPage.Settings) +
             profiles.map { DeckPage.Connection(it) }
     }
-    val pagerState = rememberPagerState(pageCount = { pages.size })
 
-    var initialScrollDone by remember { mutableStateOf(false) }
-    LaunchedEffect(sessions.isNotEmpty()) {
-        if (sessions.isNotEmpty() && !initialScrollDone) {
-            initialScrollDone = true
-            pagerState.scrollToPage(0)
+    val density = LocalDensity.current
+    val maxIndex = (pages.size - 1).coerceAtLeast(0)
+    val offset = remember { Animatable(0f) }
+    val currentPage by remember(offset) {
+        derivedStateOf {
+            offset.value.roundToInt().coerceIn(0, (pages.size - 1).coerceAtLeast(0))
         }
+    }
+
+    LaunchedEffect(maxIndex) {
+        if (offset.value > maxIndex) offset.snapTo(maxIndex.toFloat())
     }
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         BoxWithConstraints(modifier = Modifier.padding(padding)) {
             val viewportHeight = maxHeight
-            val focusedTop = (viewportHeight - DECK_CARD_HEIGHT) / 2f
-            VerticalPager(
-                state = pagerState,
-                pageSize = PageSize.Fill,
-                pageSpacing = 0.dp,
-                contentPadding = PaddingValues(0.dp),
-                beyondViewportPageCount = 3,
-                key = { pages[it].key },
-            ) { pageIndex ->
-                val o = pagerState.getOffsetDistanceInPages(pageIndex)
-                val k = abs(o)
-                val isPeek = o <= 0f
-                val ty = if (isPeek) focusedTop - FAN_STEP * k else focusedTop + BELOW_STEP * o
-                val cardAlpha = if (isPeek) (4f + o).coerceIn(0f, 1f) else 1f
-                val z =
-                    if (isPeek) 1f - Z_PER_RANK * k else (1f - 0.5f * o).coerceIn(0f, 1f)
+            val pageHeightPx = with(density) { viewportHeight.toPx() }
+            val focusedTopPx = with(density) { ((viewportHeight - DECK_CARD_HEIGHT) / 2f).toPx() }
+            val fanStepPx = with(density) { FAN_STEP.toPx() }
+            val belowStepPx = with(density) { BELOW_STEP.toPx() }
 
-                Box(Modifier.fillMaxSize().zIndex(z)) {
+            val nestedScrollConnection = remember {
+                object : NestedScrollConnection {
+                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset = Offset.Zero
+
+                    override fun onPostScroll(
+                        consumed: Offset,
+                        available: Offset,
+                        source: NestedScrollSource,
+                    ): Offset {
+                        if (pageHeightPx <= 0f || available.y == 0f) return Offset.Zero
+                        val delta = available.y / pageHeightPx
+                        val target = (offset.value + delta).coerceIn(0f, maxIndex.toFloat())
+                        scope.launch { offset.snapTo(target) }
+                        return available
+                    }
+
+                    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                        if (pageHeightPx <= 0f || available.y == 0f) return Velocity.Zero
+                        val predicted = offset.value + (available.y / pageHeightPx) * 0.15f
+                        val target = predicted.roundToInt().coerceIn(0, maxIndex).toFloat()
+                        offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
+                        return available
+                    }
+                }
+            }
+
+            var velocityTracker by remember { mutableStateOf(VelocityTracker()) }
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .nestedScroll(nestedScrollConnection)
+                    .pointerInput(pages.size, pageHeightPx) {
+                        detectVerticalDragGestures(
+                            onDragStart = { velocityTracker = VelocityTracker() },
+                            onVerticalDrag = { change, dy ->
+                                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                if (pageHeightPx > 0f) {
+                                    val delta = -dy / pageHeightPx
+                                    val target = (offset.value + delta).coerceIn(0f, maxIndex.toFloat())
+                                    scope.launch { offset.snapTo(target) }
+                                }
+                                change.consume()
+                            },
+                            onDragEnd = {
+                                if (pageHeightPx > 0f) {
+                                    val v = velocityTracker.calculateVelocity().y
+                                    val predicted = offset.value - (v / pageHeightPx) * 0.15f
+                                    val target = predicted.roundToInt().coerceIn(0, maxIndex).toFloat()
+                                    scope.launch {
+                                        offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                if (pageHeightPx > 0f) {
+                                    val target = offset.value.roundToInt().coerceIn(0, maxIndex).toFloat()
+                                    scope.launch {
+                                        offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
+                                    }
+                                }
+                            },
+                        )
+                    }
+            ) {
+                pages.forEachIndexed { pageIndex, page ->
+                    val zIndex by remember(pageIndex, pages.size) {
+                        derivedStateOf {
+                            val oc = offset.value - pageIndex
+                            val kc = abs(oc)
+                            1f - Z_PER_RANK * kc
+                        }
+                    }
+
                     Box(
                         Modifier
                             .fillMaxWidth()
                             .height(DECK_CARD_HEIGHT)
                             .padding(start = 40.dp, end = 16.dp)
+                            .zIndex(zIndex)
                             .graphicsLayer {
-                                val naturalY = o * viewportHeight.toPx()
-                                translationY = ty.toPx() - naturalY
-                                alpha = cardAlpha
+                                val oc = offset.value - pageIndex
+                                val kc = abs(oc)
+                                val peek = oc <= 0f
+                                translationY = if (peek) focusedTopPx + fanStepPx * kc
+                                               else focusedTopPx - belowStepPx * oc
+                                alpha = if (peek) (4f + oc).coerceIn(0f, 1f) else 1f
                             },
                     ) {
-                        when (val page = pages.getOrNull(pageIndex)) {
+                        when (page) {
                             is DeckPage.Agent -> {
                                 val session = page.session
                                 AgentCard(
@@ -355,8 +433,9 @@ fun LauncherScreen() {
                                         )
                                         profiles = profiles + newProfile
                                         saveProfiles(prefs, profiles)
+                                        val newIdx = (sessions.size + 2 + profiles.size - 1).coerceAtLeast(0)
                                         scope.launch {
-                                            pagerState.animateScrollToPage(sessions.size + 2 + profiles.size - 1)
+                                            offset.animateTo(newIdx.toFloat(), spring(dampingRatio = Spring.DampingRatioLowBouncy))
                                         }
                                     },
                                     onOpenLauncher = {
@@ -423,7 +502,6 @@ fun LauncherScreen() {
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
-                            null -> {}
                         }
                     }
                 }
@@ -431,8 +509,12 @@ fun LauncherScreen() {
 
             StatusRail(
                 pages = pages,
-                currentIndex = pagerState.currentPage,
-                onTap = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
+                currentIndex = currentPage,
+                onTap = { idx ->
+                    scope.launch {
+                        offset.animateTo(idx.toFloat().coerceIn(0f, maxIndex.toFloat()), spring(dampingRatio = Spring.DampingRatioLowBouncy))
+                    }
+                },
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .padding(start = 4.dp)

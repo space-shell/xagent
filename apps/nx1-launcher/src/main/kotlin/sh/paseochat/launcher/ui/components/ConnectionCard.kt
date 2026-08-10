@@ -28,11 +28,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,6 +80,24 @@ fun ConnectionCard(
         mutableStateOf(if (profile.connectionType == ConnectionType.RELAY) "qr" else "url")
     }
 
+    var hostText by remember(profile.id) { mutableStateOf(profile.host) }
+    var passwordText by remember(profile.id) { mutableStateOf(profile.password) }
+
+    LaunchedEffect(profile.host) {
+        if (profile.host != hostText) hostText = profile.host
+    }
+    LaunchedEffect(profile.password) {
+        if (profile.password != passwordText) passwordText = profile.password
+    }
+    LaunchedEffect(hostText) {
+        delay(400)
+        if (hostText != profile.host) onProfileChange(profile.copy(host = hostText))
+    }
+    LaunchedEffect(passwordText) {
+        delay(400)
+        if (passwordText != profile.password) onProfileChange(profile.copy(password = passwordText))
+    }
+
     val haptics = rememberHaptics()
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -97,7 +117,7 @@ fun ConnectionCard(
     var swipeOffset by remember(profile.id) { mutableFloatStateOf(0f) }
     val visualOffset by animateFloatAsState(
         targetValue = swipeOffset,
-        animationSpec = if (isDragging) snap() else spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        animationSpec = if (isDragging) snap() else spring(dampingRatio = Spring.DampingRatioLowBouncy),
         label = "conn-swipe",
     )
 
@@ -199,16 +219,16 @@ fun ConnectionCard(
 
                 if (mode == "url") {
                     OutlinedTextField(
-                        value = profile.host,
-                        onValueChange = { onProfileChange(profile.copy(host = it)) },
+                        value = hostText,
+                        onValueChange = { hostText = it },
                         label = { Text("Host:port") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = profile.password,
-                        onValueChange = { onProfileChange(profile.copy(password = it)) },
+                        value = passwordText,
+                        onValueChange = { passwordText = it },
                         label = { Text("Password") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),

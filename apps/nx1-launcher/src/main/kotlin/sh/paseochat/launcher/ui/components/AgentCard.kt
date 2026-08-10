@@ -630,7 +630,7 @@ private fun stateMeta(state: AgentState): StateMeta {
     }
 }
 
-@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 six states (light)")
+@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "Reference \u2014 six states (light)")
 @Composable
 private fun AgentCardStatesPreview() {
     PaseoTheme(darkTheme = false) {
@@ -648,7 +648,7 @@ private fun AgentCardStatesPreview() {
     }
 }
 
-@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 six states (dark)")
+@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "Reference \u2014 six states (dark)")
 @Composable
 private fun AgentCardStatesDarkPreview() {
     PaseoTheme(darkTheme = true) {

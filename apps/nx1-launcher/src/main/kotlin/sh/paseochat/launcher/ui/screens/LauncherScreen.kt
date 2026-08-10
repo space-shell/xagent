@@ -641,7 +641,7 @@ private fun AttentionDot(
     }
 }
 
-@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "NX1 \u2014 roller deck")
+@Preview(showBackground = true, widthDp = 270, heightDp = 584, name = "Reference \u2014 roller deck")
 @Composable
 private fun LauncherDeckPreview() {
     PaseoTheme(darkTheme = false) { LauncherScreen() }

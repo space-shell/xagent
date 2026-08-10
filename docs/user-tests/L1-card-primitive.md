@@ -4,7 +4,7 @@
 - **Date:** 2026-08-09
 - **Build:** `d0fef56` (all six states rendered on-device)
 - **Tester:** non-dev (walkthrough)
-- **Device:** Bluefox NX1 (hardware)
+- **Device:** small Android device (hardware)
 
 ## Protocol (AC-L1-2)
 

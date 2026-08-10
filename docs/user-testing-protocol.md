@@ -26,7 +26,7 @@ Each test is captured in `docs/user-tests/{L|I}{n}-{slug}.md` using this templat
 # User Test — M{n} {title}
 Date:
 Tester: (name, role, Paseo familiarity: none / user / expert)
-Device: (NX1 serial, or emulator + Android version)
+Device: (model + Android version, or emulator + Android version)
 Daemon host:
 
 ## Setup
@@ -53,7 +53,7 @@ Daemon host:
 ## What we measure
 
 - **Task success** — did they complete it without the developer intervening?
-- **Time-on-task** — rough seconds; flags friction on a 4" screen.
+- **Time-on-task** — rough seconds; flags friction on a small screen.
 - **Errors** — wrong taps, dead ends, things that needed explaining.
 - **Confusion points** — anything they hesitated on or asked about. These drive
   the next increment's design more than the failures do.

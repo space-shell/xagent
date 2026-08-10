@@ -3,7 +3,7 @@
 - **Increment:** L3 — Input card + push-to-talk
 - **Build:** `be7f9e2` (per-card mic, real SpeechRecognizer)
 - **Tester:** non-dev (first non-dev-judged increment)
-- **Device:** Bluefox NX1 (hardware)
+- **Device:** small Android device (hardware)
 
 ## Acceptance criteria
 
@@ -12,7 +12,7 @@
   not a silent dead-end.
 - **AC-L3-3** — *(deferred)* Low-confidence prompts Send/Edit.
 
-## Protocol (run on the NX1)
+## Protocol (run on the reference device)
 
 1. **Permission prompt** — first mic press → system RECORD_AUDIO dialog → Allow.
    Confirm listening begins immediately after granting.
@@ -23,7 +23,7 @@
    transcript attaches to the correct card, not the other.
 4. **Misfire** — tap-and-release the mic without speaking. Confirm a graceful
    "Didn't catch that" snackbar (not a silent hang or stuck listening state).
-5. **No recognizer** — *(if the NX1 lacks a recognizer service)* confirm the
+5. **No recognizer** — *(if the device lacks a recognizer service)* confirm the
    "Voice input unavailable on this device" snackbar appears and the mic does
    not get stuck.
 

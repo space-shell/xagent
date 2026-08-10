@@ -9,16 +9,20 @@ This document is the design spec for the launcher UI.
 
 ---
 
-## 1. The canvas — Bluefox NX1
+## 1. The canvas — small Android device
+
+xagent is aimed at **physically small Android devices** (~4", one-handed). The
+reference canvas is representative of that form factor:
 
 | | |
 |---|---|
-| Screen | 4.0" LCD, 540 × 1168 px, 60 Hz, 500 nits |
-| Density | ~321 ppi → **xhdpi (2.0×)** → design at **270 × 584 dp** |
+| Reference size | ~4" at xhdpi (~321 ppi) → design at **270 × 584 dp** |
 | Reach | one-handed; thumb arc covers bottom ~60% |
-| Input | touch + side **programmable key** (r1's push-to-talk analogue) + IR |
+| Input | touch + (device-dependent) side **programmable key** as r1's push-to-talk analogue |
 
-**Rule:** every composable is previewed at `widthDp = 270, heightDp = 584`.
+**Rule:** every composable is previewed at `widthDp = 270, heightDp = 584`. The
+app runs on any device with `minSdk = 26`; the geometry and reach assumptions
+are tuned for the small form factor.
 
 ---
 
@@ -33,9 +37,9 @@ finishes.
 
 ### Design pivot: remote controller (2026-08-09, `4990e08`)
 
-The NX1 is **not a reading device** — it's a **remote controller**. You don't
-drill into a card to read detailed output; you glance at state, approve/deny
-actions, switch modes, and talk to steer. This pivot drove:
+The small device is **not a reading device** — it's a **remote controller**. You
+don't drill into a card to read detailed output; you glance at state,
+approve/deny actions, switch modes, and talk to steer. This pivot drove:
 
 - **No detail/tap-through.** The card is the full interface. `AgentDetail`
   composable deleted.
@@ -112,9 +116,10 @@ When `state == AwaitingInput`:
 
 ## 3. The stack — navigation model
 
-- A **roller deck** (`VerticalPager`, `pageSize = Fill`): the **focused** card
-  sits centred (~360 dp); up to **three previous cards fan out above**, each
-  recessed (alpha ramp, lower z-index). Next card slides up from below on swipe.
+- A **roller deck** (custom `DeckScroller` in `LauncherScreen.kt`, replaced the
+  original `VerticalPager`): the **focused** card sits centred (~360 dp); up to
+  **three previous cards fan out above**, each recessed (alpha ramp, lower
+  z-index). Next card slides up from below on swipe.
 - Cards are **solid** (alpha = 1 inside fan) and **same size** (no scale fan).
   Peeks differ only in alpha and z-index.
 - **Status dot rail** — left gutter (start 6dp). Each dot's colour matches its
@@ -122,7 +127,8 @@ When `state == AwaitingInput`:
   (8×8dp). Dots bunched centre (`spacedBy(8dp, CenterVertical)`). Tap to jump.
 - Card content inset `start=40dp` to clear the rail.
 - **No tap-through** to detail. **No swipe-to-dismiss.** Scroll is the only
-  gesture on the deck.
+  gesture on the deck. Z-index uses an asymmetric `+0.1f` bias for the outgoing
+  card so the focused card never clips behind its neighbour mid-scroll.
 - **Empty state** — centred: "Hold the button to start."
 
 The stack *is* the multi-agent view — no separate "agents" tab.

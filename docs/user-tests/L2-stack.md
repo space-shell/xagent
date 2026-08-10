@@ -3,16 +3,16 @@
 - **Increment:** L2 — Card stack & navigation
 - **Build:** roller deck — `044631b` (peek-stack fix) onward
 - **Tester:** dev (Sam)
-- **Device:** Bluefox NX1 (hardware)
+- **Device:** small Android device (hardware)
 
 ## Acceptance criteria
 
 - **AC-L2-1** — A 10-card deck scrolls smoothly at 60 Hz.
 - **AC-L2-2** — ~~Swipe dismisses with undo~~ **obsolete** (swipe-to-dismiss
-  removed `9d5bd82`; cards persist — the NX1 is a remote controller).
+  removed `9d5bd82`; cards persist — the device is a remote controller).
 - **AC-L2-3** — Empty state renders and is self-explanatory.
 
-## Protocol (run on the NX1)
+## Protocol (run on the reference device)
 
 1. **Scroll** — swipe up/down through the 10-card roller deck; confirm the focused
    card centres and up to three previous cards fan out above it. Note any jank.

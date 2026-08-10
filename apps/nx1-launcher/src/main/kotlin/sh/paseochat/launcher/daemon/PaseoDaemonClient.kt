@@ -486,13 +486,18 @@ class PaseoDaemonClient(
         val item = event["item"]?.jsonObject ?: return
         val itemType = item["type"]?.jsonPrimitive?.contentOrNull ?: return
 
-        if (itemType != "assistant_message") return
+        when (itemType) {
+            "assistant_message" -> {
+                val text = item["text"]?.jsonPrimitive?.contentOrNull ?: return
+                timelineSummaries[agentId] = text.take(140).trim()
+            }
+            "reasoning" -> {
+                timelineSummaries[agentId] = "Thinking\u2026"
+            }
+            else -> return
+        }
 
-        val text = item["text"]?.jsonPrimitive?.contentOrNull ?: return
-        val summary = text.take(140).trim()
-
-        timelineSummaries[agentId] = summary
-
+        val summary = timelineSummaries[agentId] ?: return
         val current = _agents.value
         val idx = current.indexOfFirst { it.id == agentId }
         if (idx >= 0) {

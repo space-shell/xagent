@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -273,40 +273,44 @@ fun ConnectionCard(
                             }
                         }
                     } else {
-                        Column(
+                        BoxWithConstraints(
                             Modifier
                                 .fillMaxWidth()
                                 .weight(1f),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
+                            contentAlignment = Alignment.Center,
                         ) {
                             if (hasCameraPermission.value) {
+                                val camSize = minOf(maxWidth, maxHeight)
                                 QrScannerWindow(
                                     onScanned = onQrScanned,
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(1f)
+                                        .size(camSize)
                                         .clip(RoundedCornerShape(16.dp)),
                                 )
                             } else {
-                                Text(
-                                    "Camera permission needed",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = onContainerColor.copy(alpha = 0.5f),
-                                )
-                                Spacer(Modifier.height(12.dp))
-                                Box(
-                                    Modifier
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(cs.primary)
-                                        .clickable { cameraPermLauncher.launch(Manifest.permission.CAMERA) }
-                                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
                                 ) {
                                     Text(
-                                        "Grant camera",
-                                        color = cs.onPrimary,
-                                        fontWeight = FontWeight.SemiBold,
+                                        "Camera permission needed",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = onContainerColor.copy(alpha = 0.5f),
                                     )
+                                    Spacer(Modifier.height(12.dp))
+                                    Box(
+                                        Modifier
+                                            .clip(RoundedCornerShape(18.dp))
+                                            .background(cs.primary)
+                                            .clickable { cameraPermLauncher.launch(Manifest.permission.CAMERA) }
+                                            .padding(horizontal = 20.dp, vertical = 10.dp),
+                                    ) {
+                                        Text(
+                                            "Grant camera",
+                                            color = cs.onPrimary,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -24,5 +24,9 @@ data class AgentSession(
     val permissionKind: String? = null,
     val permissionTitle: String? = null,
     val permissionOptions: List<PermOption> = emptyList(),
+    val connectionId: String = "",
+    val serverName: String = "",
+    val serverId: String = "",
+    val cwd: String = "",
 )
 

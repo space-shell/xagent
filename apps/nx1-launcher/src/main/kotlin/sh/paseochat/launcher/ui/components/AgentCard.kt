@@ -1,16 +1,20 @@
 package sh.paseochat.launcher.ui.components
 
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,7 +37,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material.icons.outlined.Mic
@@ -47,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -55,16 +63,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
@@ -81,12 +90,16 @@ import sh.paseochat.launcher.ui.theme.R1Orange
 @Composable
 fun stateDotColor(state: AgentState): Color = stateMeta(state).containerColor
 
+private val ArchiveRed = Color(0xFFE57373)
+private val DarkGreyBorder = Color(0xFF444444)
+
 @Composable
 fun AgentCard(
     session: AgentSession,
     serverName: String = "",
     listening: Boolean = false,
     partialText: String = "",
+    pendingTranscript: String? = null,
     onMicDown: () -> Unit = {},
     onMicUp: () -> Unit = {},
     onCycleMode: () -> Unit = {},
@@ -95,117 +108,186 @@ fun AgentCard(
     onApproveAlways: (() -> Unit)? = null,
     onSelectOption: (PermOption) -> Unit = {},
     onCustomAnswer: (String) -> Unit = {},
+    onArchive: () -> Unit = {},
+    onConfirmTranscript: () -> Unit = {},
+    onCancelTranscript: () -> Unit = {},
+    onOpenInPaseo: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val meta = stateMeta(session.state)
     val haptics = rememberHaptics()
+    val density = LocalDensity.current
+    val maxSwipePx = with(density) { 120.dp.toPx() }
 
-    val planBorder = if (session.mode == AgentMode.Plan) {
-        Modifier.border(3.dp, Color(0xFFC9A227), RoundedCornerShape(28.dp))
+    var isDragging by remember(session.id) { mutableStateOf(false) }
+    var swipeOffset by remember(session.id) { mutableFloatStateOf(0f) }
+    val visualOffset by animateFloatAsState(
+        targetValue = swipeOffset,
+        animationSpec = if (isDragging) snap() else spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "swipe",
+    )
+
+    val modeDotColor = if (session.mode == AgentMode.Plan) {
+        Color(0xFFC9A227)
     } else {
-        Modifier
+        Color(0xFF666666)
     }
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(planBorder)
-            .pointerInput(session.id, session.mode) {
-                detectTapGestures(
-                    onLongPress = {
-                        haptics.longPress()
-                        onCycleMode()
+    Box(
+        modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(28.dp))
+            .pointerInput(session.id) {
+                detectHorizontalDragGestures(
+                    onDragStart = { isDragging = true },
+                    onDragEnd = {
+                        isDragging = false
+                        swipeOffset = if (swipeOffset > maxSwipePx / 2) maxSwipePx else 0f
                     },
-                )
-            },
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = meta.containerColor),
+                    onDragCancel = {
+                        isDragging = false
+                        swipeOffset = 0f
+                    },
+                ) { _, dragAmount ->
+                    swipeOffset = (swipeOffset + dragAmount).coerceIn(0f, maxSwipePx)
+                }
+            }
     ) {
-        Box(Modifier.fillMaxHeight()) {
-            Image(
-                imageVector = meta.icon,
-                contentDescription = null,
-                colorFilter = ColorFilter.tint(meta.onContainerColor),
-                contentScale = ContentScale.Crop,
-                alpha = 0.07f,
-                modifier = Modifier.fillMaxSize().padding(24.dp),
-            )
-            Column(
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(ArchiveRed),
+        ) {
+            Box(
                 Modifier
-                    .fillMaxHeight()
-                    .padding(16.dp)
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .clickable {
+                        haptics.confirm()
+                        onArchive()
+                    }
+                    .padding(start = 24.dp, top = 24.dp, bottom = 24.dp),
             ) {
-                Text(
-                    session.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = meta.onContainerColor,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    buildString {
-                        append("${session.provider}/${session.model}")
-                        if (serverName.isNotBlank()) append(" · $serverName")
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = meta.onContainerColor.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(12.dp))
-                val isQuestion = session.state == AgentState.AwaitingInput &&
-                    session.permissionKind == "question"
-                if (isQuestion) {
-                    Text(
-                        session.permissionTitle ?: session.summary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = meta.onContainerColor,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else {
-                    Text(
-                        session.summary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = meta.onContainerColor,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                if (listening) {
-                    ListeningLine(partialText)
-                } else if (session.userInput.isNotBlank()) {
-                    TranscriptBubble(session.userInput, meta.onContainerColor)
-                }
-                Spacer(Modifier.weight(1f))
-                if (isQuestion) {
-                    QuestionBar(
-                        options = session.permissionOptions,
-                        onSelectOption = { opt ->
-                            haptics.confirm()
-                            onSelectOption(opt)
+                Text("Archive", color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        val borderColor = DarkGreyBorder
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(visualOffset.roundToInt(), 0) }
+                .border(1.dp, borderColor, RoundedCornerShape(28.dp))
+                .pointerInput(session.id, session.mode) {
+                    detectTapGestures(
+                        onTap = {
+                            haptics.tick()
+                            onOpenInPaseo()
                         },
-                        onCustomAnswer = onCustomAnswer,
+                        onLongPress = {
+                            haptics.longPress()
+                            onCycleMode()
+                        },
                     )
-                } else if (session.state == AgentState.AwaitingInput) {
-                    ApprovalBar(
-                        onApprove = { haptics.confirm(); onApprove() },
-                        onDeny = { haptics.reject(); onDeny() },
-                        onApproveAlways = onApproveAlways,
-                    )
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
+                },
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = meta.containerColor),
+        ) {
+            Column(Modifier.fillMaxHeight()) {
+                Box(Modifier.weight(1f)) {
+                    Column(
+                        Modifier
+                            .fillMaxHeight()
+                            .padding(16.dp)
                     ) {
-                        MicButton(
-                            listening = listening,
-                            onMicDown = { haptics.tick(); onMicDown() },
-                            onMicUp = onMicUp,
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(modeDotColor)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                session.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = meta.onContainerColor,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        val workspaceName = session.cwd.substringAfterLast('/').ifBlank { "?" }
+                        val modelName = session.model.substringAfterLast('/')
+                        Text(
+                            "${serverName.ifBlank { "?" }}/$workspaceName/$modelName",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = meta.onContainerColor.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
+                        Spacer(Modifier.height(12.dp))
+                        val isQuestion = session.state == AgentState.AwaitingInput &&
+                            session.permissionKind == "question"
+                        if (isQuestion) {
+                            Text(
+                                session.permissionTitle ?: session.summary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = meta.onContainerColor,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        } else {
+                            Text(
+                                session.summary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = meta.onContainerColor,
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        if (listening) {
+                            ListeningLine(partialText)
+                        } else if (pendingTranscript != null) {
+                            TranscriptBubble(pendingTranscript, meta.onContainerColor)
+                        } else if (session.userInput.isNotBlank()) {
+                            TranscriptBubble(session.userInput, meta.onContainerColor)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        if (pendingTranscript != null) {
+                            ConfirmCancelBar(
+                                onConfirm = { haptics.confirm(); onConfirmTranscript() },
+                                onCancel = { haptics.reject(); onCancelTranscript() },
+                            )
+                        } else if (isQuestion) {
+                            QuestionBar(
+                                options = session.permissionOptions,
+                                onSelectOption = { opt ->
+                                    haptics.confirm()
+                                    onSelectOption(opt)
+                                },
+                                onCustomAnswer = onCustomAnswer,
+                            )
+                        } else if (session.state == AgentState.AwaitingInput) {
+                            ApprovalBar(
+                                onApprove = { haptics.confirm(); onApprove() },
+                                onDeny = { haptics.reject(); onDeny() },
+                                onApproveAlways = onApproveAlways,
+                            )
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                MicButton(
+                                    listening = listening,
+                                    onMicDown = { haptics.tick(); onMicDown() },
+                                    onMicUp = onMicUp,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -283,6 +365,49 @@ private fun MicButton(
                 contentDescription = "Hold to talk",
                 tint = if (listening) Color.White else cs.onPrimary,
                 modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConfirmCancelBar(
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(cs.error)
+                .clickable(onClick = onCancel),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = "Cancel",
+                tint = cs.onError,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(cs.primary)
+                .clickable(onClick = onConfirm),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Check,
+                contentDescription = "Send",
+                tint = cs.onPrimary,
+                modifier = Modifier.size(22.dp),
             )
         }
     }

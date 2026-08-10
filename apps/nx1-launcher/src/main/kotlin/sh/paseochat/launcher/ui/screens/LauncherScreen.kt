@@ -1,5 +1,16 @@
 package sh.paseochat.launcher.ui.screens
 
+import android.app.Activity
+import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -7,18 +18,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -27,45 +42,57 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlin.math.abs
 import kotlinx.coroutines.launch
-import android.Manifest
-import android.content.ComponentName
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.content.pm.ResolveInfo
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
-import sh.paseochat.launcher.daemon.PaseoDaemonClient
+import kotlinx.serialization.builtins.ListSerializer
+import java.util.UUID
+import sh.paseochat.launcher.daemon.ConnectionManager
 import sh.paseochat.launcher.daemon.models.ConnectionState
-import sh.paseochat.launcher.ui.components.AgentCard
-import sh.paseochat.launcher.voice.rememberVoiceController
+import sh.paseochat.launcher.daemon.models.DaemonJson
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
-import sh.paseochat.launcher.model.PermOption
+import sh.paseochat.launcher.model.AgentState
+import sh.paseochat.launcher.model.ConnectionProfile
+import sh.paseochat.launcher.model.ConnectionType
+import sh.paseochat.launcher.model.parseOfferFromUrl
+import sh.paseochat.launcher.ui.components.AgentCard
+import sh.paseochat.launcher.ui.components.AppsCard
+import sh.paseochat.launcher.ui.components.ConnectionCard
 import sh.paseochat.launcher.ui.components.SettingsCard
-import sh.paseochat.launcher.ui.components.stateDotColor
 import sh.paseochat.launcher.ui.theme.PaseoTheme
+import sh.paseochat.launcher.voice.rememberVoiceController
 
 private val DECK_CARD_HEIGHT = 360.dp
 private val FAN_STEP = 32.dp
 private val BELOW_STEP = 480.dp
 private const val Z_PER_RANK = 0.20f
+
+private sealed class DeckPage(val key: String) {
+    data class Agent(val session: AgentSession) : DeckPage(session.id)
+    data object Apps : DeckPage("__apps__")
+    data object Settings : DeckPage("__settings__")
+    data class Connection(val profile: ConnectionProfile) : DeckPage("conn_${profile.id}")
+}
 
 @Composable
 fun LauncherScreen() {
@@ -75,6 +102,8 @@ fun LauncherScreen() {
     val voice = rememberVoiceController()
     val context = LocalContext.current
     var listeningId by remember { mutableStateOf<String?>(null) }
+    var pendingTranscript by remember { mutableStateOf<String?>(null) }
+    var pendingSessionId by remember { mutableStateOf<String?>(null) }
     var hasMicPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -83,32 +112,54 @@ fun LauncherScreen() {
     }
     var pendingListenId by remember { mutableStateOf<String?>(null) }
 
-    val daemonClient = remember { PaseoDaemonClient() }
-    val connectionState by daemonClient.connectionState.collectAsState()
-    val sessions by daemonClient.agents.collectAsState()
-    val serverName by daemonClient.serverName.collectAsState()
+    val connectionManager = remember { ConnectionManager() }
+    val sessions by connectionManager.allAgents.collectAsState()
+    val connectionStates by connectionManager.connectionStates.collectAsState()
+    val serverNames by connectionManager.serverNames.collectAsState()
 
-    val prefs = remember { context.getSharedPreferences("daemon", android.content.Context.MODE_PRIVATE) }
-    var settingsHost by remember {
-        mutableStateOf(prefs.getString("host", "100.127.193.39:6767") ?: "100.127.193.39:6767")
-    }
-    var settingsPassword by remember {
-        mutableStateOf(prefs.getString("password", "") ?: "")
-    }
-
-    LaunchedEffect(settingsHost) {
-        prefs.edit().putString("host", settingsHost).apply()
-    }
-    LaunchedEffect(settingsPassword) {
-        prefs.edit().putString("password", settingsPassword).apply()
-    }
-
-    DisposableEffect(daemonClient) {
-        onDispose { daemonClient.close() }
-    }
+    val prefs = remember { context.getSharedPreferences("daemon", Context.MODE_PRIVATE) }
+    var profiles by remember { mutableStateOf(loadProfiles(prefs)) }
+    var hideStatusBar by remember { mutableStateOf(prefs.getBoolean("hide_status_bar", false)) }
 
     LaunchedEffect(Unit) {
-        daemonClient.connect(settingsHost, settingsPassword)
+        var current = profiles
+        if (current.isEmpty()) {
+            val oldHost = prefs.getString("host", null)
+            if (oldHost != null) {
+                val migrated = ConnectionProfile(
+                    id = UUID.randomUUID().toString(),
+                    host = oldHost,
+                    password = prefs.getString("password", "") ?: "",
+                )
+                current = listOf(migrated)
+                profiles = current
+                saveProfiles(prefs, current)
+            }
+        }
+        current.forEach { p ->
+            val canConnect = when (p.connectionType) {
+                ConnectionType.DIRECT -> p.host.isNotBlank()
+                ConnectionType.RELAY -> p.serverId.isNotBlank()
+            }
+            if (canConnect) connectionManager.connect(p)
+        }
+    }
+
+    val view = LocalView.current
+    LaunchedEffect(hideStatusBar) {
+        val window = (view.context as Activity).window
+        val controller = WindowCompat.getInsetsController(window, view)
+        if (hideStatusBar) {
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            controller.show(WindowInsetsCompat.Type.statusBars())
+        }
+        prefs.edit().putBoolean("hide_status_bar", hideStatusBar).apply()
+    }
+
+    DisposableEffect(connectionManager) {
+        onDispose { connectionManager.close() }
     }
 
     LaunchedEffect(Unit) {
@@ -120,7 +171,10 @@ fun LauncherScreen() {
 
     fun startListening(sessionId: String) {
         voice.onFinal = { text ->
-            daemonClient.sendAgentMessage(sessionId, text)
+            if (text.isNotBlank()) {
+                pendingSessionId = sessionId
+                pendingTranscript = text
+            }
             listeningId = null
             voice.reset()
         }
@@ -145,7 +199,12 @@ fun LauncherScreen() {
         }
     }
 
-    val pagerState = rememberPagerState(pageCount = { sessions.size + 1 })
+    val pages = remember(sessions, profiles) {
+        sessions.map { DeckPage.Agent(it) } +
+            listOf(DeckPage.Apps, DeckPage.Settings) +
+            profiles.map { DeckPage.Connection(it) }
+    }
+    val pagerState = rememberPagerState(pageCount = { pages.size })
 
     var initialScrollDone by remember { mutableStateOf(false) }
     LaunchedEffect(sessions.isNotEmpty()) {
@@ -165,9 +224,8 @@ fun LauncherScreen() {
                 pageSpacing = 0.dp,
                 contentPadding = PaddingValues(0.dp),
                 beyondViewportPageCount = 3,
-                key = { if (it < sessions.size) sessions[it].id else "__settings__" },
+                key = { pages[it].key },
             ) { pageIndex ->
-                val isSettings = pageIndex == sessions.size
                 val o = pagerState.getOffsetDistanceInPages(pageIndex)
                 val k = abs(o)
                 val isPeek = o <= 0f
@@ -188,176 +246,309 @@ fun LauncherScreen() {
                                 alpha = cardAlpha
                             },
                     ) {
-                        if (isSettings) {
-                            SettingsCard(
-                                host = settingsHost,
-                                onHostChange = { settingsHost = it },
-                                password = settingsPassword,
-                                onPasswordChange = { settingsPassword = it },
-                                connectionState = connectionState,
-                                onConnect = {
-                                    daemonClient.connect(settingsHost, settingsPassword)
-                                },
-                                onDisconnect = {
-                                    daemonClient.disconnect()
-                                },
-                                onOpenLauncher = {
-                                    val pm = context.packageManager
-                                    val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                                    val launchers = pm.queryIntentActivities(homeIntent, 0)
-                                        .filter { it.activityInfo.packageName != context.packageName }
-                                    val target = launchers.firstOrNull()
-                                    if (target != null) {
-                                        val intent = Intent(Intent.ACTION_MAIN).apply {
-                                            addCategory(Intent.CATEGORY_HOME)
-                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                            component = ComponentName(
-                                                target.activityInfo.packageName,
-                                                target.activityInfo.name,
+                        when (val page = pages.getOrNull(pageIndex)) {
+                            is DeckPage.Agent -> {
+                                val session = page.session
+                                AgentCard(
+                                    session,
+                                    serverName = session.serverName,
+                                    listening = listeningId == session.id,
+                                    partialText = if (listeningId == session.id) voice.partialText else "",
+                                    pendingTranscript = if (pendingSessionId == session.id) pendingTranscript else null,
+                                    onMicDown = {
+                                        if (!voice.isListening) {
+                                            if (hasMicPermission) {
+                                                startListening(session.id)
+                                            } else {
+                                                pendingListenId = session.id
+                                                permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
+                                        }
+                                    },
+                                    onMicUp = {
+                                        if (listeningId == session.id) voice.stop()
+                                    },
+                                    onCycleMode = {
+                                        val newModeId = if (session.mode == AgentMode.Plan) session.buildModeId else session.planModeId
+                                        connectionManager.setAgentMode(session.id, newModeId)
+                                    },
+                                    onApprove = {
+                                        val permId = session.pendingPermissionId
+                                        if (permId != null) {
+                                            connectionManager.respondToPermission(session.id, permId, allow = true)
+                                        }
+                                    },
+                                    onApproveAlways = {
+                                        val permId = session.pendingPermissionId
+                                        if (permId != null) {
+                                            connectionManager.respondToPermission(session.id, permId, allow = true)
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Allowed \u2014 future requests still need approval")
+                                            }
+                                        }
+                                    },
+                                    onDeny = {
+                                        val permId = session.pendingPermissionId
+                                        if (permId != null) {
+                                            connectionManager.respondToPermission(session.id, permId, allow = false)
+                                        }
+                                    },
+                                    onSelectOption = { opt ->
+                                        val permId = session.pendingPermissionId
+                                        if (permId != null) {
+                                            connectionManager.respondToPermissionWithAction(
+                                                session.id, permId,
+                                                selectedActionId = opt.id,
                                             )
                                         }
-                                        context.startActivity(intent)
-                                    }
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        } else {
-                            val session = sessions[pageIndex]
-                            AgentCard(
-                                session,
-                                serverName = serverName,
-                                listening = listeningId == session.id,
-                                partialText = if (listeningId == session.id) voice.partialText else "",
-                                onMicDown = {
-                                    if (!voice.isListening) {
-                                        if (hasMicPermission) {
-                                            startListening(session.id)
-                                        } else {
-                                            pendingListenId = session.id
-                                            permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    },
+                                    onCustomAnswer = { text ->
+                                        val permId = session.pendingPermissionId
+                                        if (permId != null) {
+                                            connectionManager.respondToPermissionWithAction(
+                                                session.id, permId,
+                                                customAnswer = text,
+                                            )
                                         }
-                                    }
-                                },
-                                onMicUp = {
-                                    if (listeningId == session.id) voice.stop()
-                                },
-                                onCycleMode = {
-                                    val newModeId = if (session.mode == AgentMode.Plan) session.buildModeId else session.planModeId
-                                    daemonClient.setAgentMode(session.id, newModeId)
-                                },
-                                onApprove = {
-                                    val permId = session.pendingPermissionId
-                                    if (permId != null) {
-                                        daemonClient.respondToPermission(session.id, permId, allow = true)
-                                    }
-                                },
-                                onApproveAlways = {
-                                    val permId = session.pendingPermissionId
-                                    if (permId != null) {
-                                        daemonClient.respondToPermission(session.id, permId, allow = true)
+                                    },
+                                    onArchive = {
+                                        connectionManager.archiveAgent(session.id)
+                                    },
+                                    onConfirmTranscript = {
+                                        pendingTranscript?.let { text ->
+                                            connectionManager.sendAgentMessage(session.id, text)
+                                        }
+                                        pendingTranscript = null
+                                        pendingSessionId = null
+                                    },
+                                    onCancelTranscript = {
+                                        pendingTranscript = null
+                                        pendingSessionId = null
+                                    },
+                                    onOpenInPaseo = {
+                                        if (session.serverId.isNotBlank()) {
+                                            try {
+                                                val uri = Uri.parse("paseo://h/${session.serverId}/agent/${session.id}")
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                            } catch (e: ActivityNotFoundException) {
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("Paseo app not installed")
+                                                }
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            is DeckPage.Apps -> {
+                                AppsCard(
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            is DeckPage.Settings -> {
+                                SettingsCard(
+                                    hideStatusBar = hideStatusBar,
+                                    onHideStatusBarChange = { hideStatusBar = it },
+                                    onAddConnection = {
+                                        val newProfile = ConnectionProfile(
+                                            id = UUID.randomUUID().toString(),
+                                        )
+                                        profiles = profiles + newProfile
+                                        saveProfiles(prefs, profiles)
                                         scope.launch {
-                                            snackbarHostState.showSnackbar("Allowed \u2014 future requests still need approval")
+                                            pagerState.animateScrollToPage(sessions.size + 2 + profiles.size - 1)
                                         }
-                                    }
-                                },
-                                onDeny = {
-                                    val permId = session.pendingPermissionId
-                                    if (permId != null) {
-                                        daemonClient.respondToPermission(session.id, permId, allow = false)
-                                    }
-                                },
-                                onSelectOption = { opt ->
-                                    val permId = session.pendingPermissionId
-                                    if (permId != null) {
-                                        daemonClient.respondToPermissionWithAction(
-                                            session.id, permId,
-                                            selectedActionId = opt.id,
-                                        )
-                                    }
-                                },
-                                onCustomAnswer = { text ->
-                                    val permId = session.pendingPermissionId
-                                    if (permId != null) {
-                                        daemonClient.respondToPermissionWithAction(
-                                            session.id, permId,
-                                            customAnswer = text,
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                                    },
+                                    onOpenLauncher = {
+                                        val pm = context.packageManager
+                                        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                                        val launchers = pm.queryIntentActivities(homeIntent, 0)
+                                            .filter { it.activityInfo.packageName != context.packageName }
+                                        val target = launchers.firstOrNull()
+                                        if (target != null) {
+                                            val intent = Intent(Intent.ACTION_MAIN).apply {
+                                                addCategory(Intent.CATEGORY_HOME)
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                component = ComponentName(
+                                                    target.activityInfo.packageName,
+                                                    target.activityInfo.name,
+                                                )
+                                            }
+                                            context.startActivity(intent)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            is DeckPage.Connection -> {
+                                val profile = page.profile
+                                ConnectionCard(
+                                    profile = profile,
+                                    connectionState = connectionStates[profile.id] ?: ConnectionState.Disconnected,
+                                    serverName = serverNames[profile.id] ?: "",
+                                    onProfileChange = { updated ->
+                                        profiles = profiles.map { if (it.id == profile.id) updated else it }
+                                        saveProfiles(prefs, profiles)
+                                    },
+                                    onConnect = {
+                                        connectionManager.connect(profile)
+                                    },
+                                    onDisconnect = {
+                                        connectionManager.disconnect(profile.id)
+                                    },
+                                    onDelete = {
+                                        connectionManager.disconnect(profile.id)
+                                        profiles = profiles.filter { it.id != profile.id }
+                                        saveProfiles(prefs, profiles)
+                                    },
+                                    onQrScanned = { url ->
+                                        val offer = parseOfferFromUrl(url)
+                                        if (offer != null) {
+                                            val updated = profile.copy(
+                                                connectionType = ConnectionType.RELAY,
+                                                serverId = offer.serverId,
+                                                daemonPublicKeyB64 = offer.daemonPublicKeyB64,
+                                                relayEndpoint = offer.relay.endpoint,
+                                                relayUseTls = offer.relay.useTls ?: true,
+                                            )
+                                            profiles = profiles.map { if (it.id == profile.id) updated else it }
+                                            saveProfiles(prefs, profiles)
+                                            connectionManager.connect(updated)
+                                        } else {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Invalid QR code")
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            null -> {}
                         }
                     }
                 }
             }
 
             StatusRail(
-                sessions = sessions,
+                pages = pages,
                 currentIndex = pagerState.currentPage,
-                viewportHeight = viewportHeight,
                 onTap = { idx -> scope.launch { pagerState.animateScrollToPage(idx) } },
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .padding(start = 6.dp)
+                    .padding(start = 4.dp)
                     .fillMaxHeight(),
             )
         }
     }
 }
 
+private fun loadProfiles(prefs: SharedPreferences): List<ConnectionProfile> {
+    val json = prefs.getString("connection_profiles", null) ?: return emptyList()
+    return try {
+        DaemonJson.decodeFromString(ListSerializer(ConnectionProfile.serializer()), json)
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+private fun saveProfiles(prefs: SharedPreferences, profiles: List<ConnectionProfile>) {
+    val json = DaemonJson.encodeToString(ListSerializer(ConnectionProfile.serializer()), profiles)
+    prefs.edit().putString("connection_profiles", json).apply()
+}
+
 @Composable
 private fun StatusRail(
-    sessions: List<AgentSession>,
+    pages: List<DeckPage>,
     currentIndex: Int,
-    viewportHeight: Dp,
     onTap: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
-    val itemCount = sessions.size + 1
-    val slotHeight = minOf(26.dp, viewportHeight / itemCount)
-    val dotSize = minOf(8.dp, slotHeight * 0.3f)
-    val focusedHeight = minOf(22.dp, slotHeight * 0.8f)
+    val appsIndex = pages.indexOfFirst { it is DeckPage.Apps }
+    val settingsIndex = pages.indexOfFirst { it is DeckPage.Settings }
+
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
     ) {
-        sessions.forEachIndexed { index, session ->
-            val focused = index == currentIndex
-            val color = stateDotColor(session.state)
-            val shape = if (focused) RoundedCornerShape(50) else CircleShape
-            Box(
-                modifier = Modifier
-                    .pointerInput(index) { detectTapGestures { onTap(index) } }
-                    .width(20.dp)
-                    .height(slotHeight),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .width(dotSize)
-                        .height(if (focused) focusedHeight else dotSize)
-                        .background(color, shape),
-                )
+        SidebarIcon(
+            icon = Icons.Outlined.Home,
+            focused = currentIndex == 0,
+            tint = cs.onSurfaceVariant,
+            onTap = { onTap(0) },
+        )
+
+        pages.forEachIndexed { idx, page ->
+            if (page is DeckPage.Agent) {
+                val s = page.session
+                if (s.state == AgentState.AwaitingInput || s.state == AgentState.Error) {
+                    AttentionDot(
+                        focused = currentIndex == idx,
+                        onTap = { onTap(idx) },
+                    )
+                }
             }
         }
-        Spacer(Modifier.height(14.dp))
-        val settingsFocused = sessions.size == currentIndex
-        val settingsShape = if (settingsFocused) RoundedCornerShape(50) else CircleShape
-        Box(
-            modifier = Modifier
-                .pointerInput(sessions.size) { detectTapGestures { onTap(sessions.size) } }
-                .width(20.dp)
-                .height(slotHeight),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                Modifier
-                    .width(dotSize)
-                    .height(if (settingsFocused) focusedHeight else dotSize)
-                    .background(cs.outline, settingsShape),
+
+        if (appsIndex >= 0) {
+            SidebarIcon(
+                icon = Icons.Outlined.Dashboard,
+                focused = currentIndex == appsIndex,
+                tint = cs.onSurfaceVariant,
+                onTap = { onTap(appsIndex) },
             )
         }
+
+        if (settingsIndex >= 0) {
+            SidebarIcon(
+                icon = Icons.Outlined.Settings,
+                focused = currentIndex == settingsIndex,
+                tint = cs.onSurfaceVariant,
+                onTap = { onTap(settingsIndex) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SidebarIcon(
+    icon: ImageVector,
+    focused: Boolean,
+    tint: Color,
+    onTap: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .pointerInput(Unit) { detectTapGestures { onTap() } }
+            .size(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (focused) MaterialTheme.colorScheme.primary else tint.copy(alpha = 0.6f),
+            modifier = Modifier.size(if (focused) 22.dp else 18.dp),
+        )
+    }
+}
+
+@Composable
+private fun AttentionDot(
+    focused: Boolean,
+    onTap: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .pointerInput(Unit) { detectTapGestures { onTap() } }
+            .size(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(if (focused) 12.dp else 8.dp)
+                .background(cs.error, CircleShape),
+        )
     }
 }
 

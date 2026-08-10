@@ -25,6 +25,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString
 import sh.paseochat.launcher.daemon.models.ConnectionState
 import sh.paseochat.launcher.daemon.models.DaemonJson
 import sh.paseochat.launcher.daemon.models.HelloEnvelope
@@ -38,6 +39,14 @@ import java.util.UUID
 private const val TAG = "PaseoDaemonClient"
 private const val PING_INTERVAL_MS = 30_000L
 private const val MAX_RECONNECT_MS = 30_000L
+private const val HANDSHAKE_RETRY_MS = 1_000L
+
+data class RelayConfig(
+    val serverId: String,
+    val daemonPublicKeyB64: String,
+    val relayEndpoint: String,
+    val relayUseTls: Boolean,
+)
 
 class PaseoDaemonClient(
     private val httpClient: OkHttpClient = OkHttpClient(),
@@ -52,6 +61,9 @@ class PaseoDaemonClient(
     private val _serverName = MutableStateFlow("")
     val serverName: StateFlow<String> = _serverName.asStateFlow()
 
+    private val _serverId = MutableStateFlow("")
+    val serverId: StateFlow<String> = _serverId.asStateFlow()
+
     private val timelineSummaries = mutableMapOf<String, String>()
 
     private var webSocket: WebSocket? = null
@@ -63,8 +75,21 @@ class PaseoDaemonClient(
     private var reconnectAttempts = 0
     private var sessionReady = false
 
+    private var relayMode = false
+    private var relayConfig: RelayConfig? = null
+    private var e2eeReady = false
+    private var e2eeSharedKey: ByteArray? = null
+    private var clientKeyPair: E2eeCrypto.KeyPairData? = null
+    private var daemonPublicKey: ByteArray? = null
+    private var handshakeJob: Job? = null
+
     fun connect(host: String, password: String) {
         Log.d(TAG, "connect() host=$host")
+        relayMode = false
+        relayConfig = null
+        e2eeReady = false
+        e2eeSharedKey = null
+        handshakeJob?.cancel()
         currentHost = host
         currentPassword = password
         sessionReady = false
@@ -77,9 +102,34 @@ class PaseoDaemonClient(
         doConnect()
     }
 
+    fun connectRelay(config: RelayConfig) {
+        Log.d(TAG, "connectRelay() serverId=${config.serverId} relay=${config.relayEndpoint}")
+        relayMode = true
+        relayConfig = config
+        currentHost = null
+        currentPassword = ""
+        sessionReady = false
+        _serverId.value = config.serverId
+        pingJob?.cancel()
+        reconnectJob?.cancel()
+        handshakeJob?.cancel()
+        webSocket?.close(1000, "reconnect")
+        webSocket = null
+        reconnectAttempts = 0
+        e2eeReady = false
+        e2eeSharedKey = null
+        _connectionState.value = ConnectionState.Connecting
+        doConnect()
+    }
+
     fun disconnect() {
         Log.d(TAG, "disconnect()")
         currentHost = null
+        relayMode = false
+        relayConfig = null
+        e2eeReady = false
+        e2eeSharedKey = null
+        handshakeJob?.cancel()
         sessionReady = false
         pingJob?.cancel()
         reconnectJob?.cancel()
@@ -87,6 +137,7 @@ class PaseoDaemonClient(
         webSocket = null
         timelineSummaries.clear()
         _serverName.value = ""
+        _serverId.value = ""
         _agents.value = emptyList()
         _connectionState.value = ConnectionState.Disconnected
     }
@@ -114,7 +165,7 @@ class PaseoDaemonClient(
         }
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "respondToPermission agentId=$agentId reqId=$permissionRequestId allow=$allow")
-        webSocket?.send(json)
+        sendOrEncrypt(json)
     }
 
     fun setAgentMode(agentId: String, modeId: String) {
@@ -129,7 +180,7 @@ class PaseoDaemonClient(
         }
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "setAgentMode agentId=$agentId modeId=$modeId")
-        webSocket?.send(json)
+        sendOrEncrypt(json)
 
         val current = _agents.value
         val idx = current.indexOfFirst { it.id == agentId }
@@ -172,7 +223,7 @@ class PaseoDaemonClient(
         }
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "respondToPermissionWithAction agentId=$agentId reqId=$permissionRequestId actionId=$selectedActionId custom=${customAnswer != null}")
-        webSocket?.send(json)
+        sendOrEncrypt(json)
     }
 
     fun sendAgentMessage(agentId: String, text: String) {
@@ -187,10 +238,38 @@ class PaseoDaemonClient(
         }
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "sendAgentMessage agentId=$agentId text=${text.take(80)}")
-        webSocket?.send(json)
+        sendOrEncrypt(json)
+    }
+
+    fun archiveAgent(agentId: String) {
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "archive_agent_request")
+                put("agentId", agentId)
+                put("requestId", UUID.randomUUID().toString())
+            }
+        }
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "archiveAgent agentId=$agentId")
+        sendOrEncrypt(json)
     }
 
     private fun doConnect() {
+        if (relayMode) {
+            val config = relayConfig ?: return
+            sessionReady = false
+            e2eeReady = false
+            e2eeSharedKey = null
+            clientKeyPair = E2eeCrypto.generateKeyPair()
+            daemonPublicKey = E2eeCrypto.decodePublicKeyBase64(config.daemonPublicKeyB64)
+            val protocol = if (config.relayUseTls) "wss" else "ws"
+            val url = "$protocol://${config.relayEndpoint}/ws?serverId=${config.serverId}&role=client&v=2"
+            Log.d(TAG, "doConnect() relay url=$url")
+            val request = Request.Builder().url(url).build()
+            webSocket = httpClient.newWebSocket(request, DaemonListener())
+            return
+        }
         val host = currentHost ?: return
         val url = "ws://$host/ws"
         sessionReady = false
@@ -203,11 +282,60 @@ class PaseoDaemonClient(
         webSocket = httpClient.newWebSocket(request, DaemonListener())
     }
 
+    private fun sendOrEncrypt(json: String) {
+        val key = e2eeSharedKey
+        if (relayMode && e2eeReady && key != null) {
+            val encrypted = E2eeCrypto.encrypt(json.toByteArray(Charsets.UTF_8), key)
+            webSocket?.send(ByteString.of(*encrypted))
+        } else {
+            webSocket?.send(json)
+        }
+    }
+
+    private fun sendE2eeHello() {
+        val clientPubKey = clientKeyPair?.publicKey ?: return
+        val pubB64 = E2eeCrypto.encodePublicKeyBase64(clientPubKey)
+        val hello = """{"type":"e2ee_hello","key":"$pubB64","capabilities":{"binaryCiphertext":true}}"""
+        Log.d(TAG, "sendE2eeHello()")
+        webSocket?.send(hello)
+    }
+
+    private fun startHandshakeRetry() {
+        handshakeJob?.cancel()
+        handshakeJob = scope.launch {
+            while (!e2eeReady && relayMode) {
+                delay(HANDSHAKE_RETRY_MS)
+                if (!e2eeReady && relayMode) {
+                    Log.d(TAG, "E2EE handshake retry...")
+                    sendE2eeHello()
+                }
+            }
+        }
+    }
+
+    private fun handleE2eeReady() {
+        val daemonPub = daemonPublicKey ?: return
+        val clientKP = clientKeyPair ?: return
+        e2eeSharedKey = E2eeCrypto.deriveSharedKey(daemonPub, clientKP.secretKey)
+        e2eeReady = true
+        handshakeJob?.cancel()
+        Log.d(TAG, "E2EE handshake complete")
+        _connectionState.value = ConnectionState.Connected
+        sendHello()
+        pingJob?.cancel()
+        pingJob = scope.launch {
+            while (true) {
+                delay(PING_INTERVAL_MS)
+                sendPing()
+            }
+        }
+    }
+
     private fun sendHello() {
         val hello = HelloEnvelope(clientId = clientId)
         val json = DaemonJson.encodeToString(HelloEnvelope.serializer(), hello)
         Log.d(TAG, "sendHello() $json")
-        webSocket?.send(json)
+        sendOrEncrypt(json)
     }
 
     private fun sendPing() {
@@ -216,7 +344,7 @@ class PaseoDaemonClient(
             clientSentAt = System.currentTimeMillis(),
         )
         val json = DaemonJson.encodeToString(PingEnvelope.serializer(), ping)
-        webSocket?.send(json)
+        sendOrEncrypt(json)
     }
 
     private fun sendFetchAgents() {
@@ -233,23 +361,25 @@ class PaseoDaemonClient(
         }
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "sendFetchAgents() $json")
-        webSocket?.send(json)
+        sendOrEncrypt(json)
     }
 
     private fun scheduleReconnect() {
-        if (currentHost == null) return
+        if (currentHost == null && relayConfig == null) return
         reconnectAttempts++
         val delayMs = (1000L shl (reconnectAttempts - 1).coerceAtMost(4))
             .coerceAtMost(MAX_RECONNECT_MS)
         Log.d(TAG, "scheduleReconnect() attempt=$reconnectAttempts delay=${delayMs}ms")
         reconnectJob = scope.launch {
             delay(delayMs)
-            if (currentHost != null) {
+            if (currentHost != null || relayConfig != null) {
                 _connectionState.value = ConnectionState.Connecting
                 doConnect()
             }
         }
     }
+
+    private fun shouldReconnect(): Boolean = currentHost != null || (relayMode && relayConfig != null)
 
     private fun handleMessage(text: String) {
         try {
@@ -301,7 +431,9 @@ class PaseoDaemonClient(
         if (status == "server_info" && !sessionReady) {
             val hostname = payload["hostname"]?.jsonPrimitive?.contentOrNull
             _serverName.value = hostname ?: ""
-            Log.d(TAG, "server_info received — hostname=$hostname")
+            val sid = payload["serverId"]?.jsonPrimitive?.contentOrNull
+            if (!sid.isNullOrBlank()) _serverId.value = sid
+            Log.d(TAG, "server_info received — hostname=$hostname serverId=$sid")
             sessionReady = true
             sendFetchAgents()
         }
@@ -449,6 +581,7 @@ class PaseoDaemonClient(
             permissionKind = permKind,
             permissionTitle = if (permKind == "question") permTitle else null,
             permissionOptions = permOptions,
+            cwd = cwd,
         )
     }
 
@@ -456,19 +589,51 @@ class PaseoDaemonClient(
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.d(TAG, "onOpen()")
             reconnectAttempts = 0
-            sendHello()
-            _connectionState.value = ConnectionState.Connected
-            pingJob?.cancel()
-            pingJob = scope.launch {
-                while (true) {
-                    delay(PING_INTERVAL_MS)
-                    sendPing()
+            if (relayMode) {
+                _connectionState.value = ConnectionState.Connecting
+                sendE2eeHello()
+                startHandshakeRetry()
+            } else {
+                sendHello()
+                _connectionState.value = ConnectionState.Connected
+                pingJob?.cancel()
+                pingJob = scope.launch {
+                    while (true) {
+                        delay(PING_INTERVAL_MS)
+                        sendPing()
+                    }
                 }
             }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            if (relayMode && !e2eeReady) {
+                if (text.contains("\"e2ee_ready\"")) {
+                    handleE2eeReady()
+                } else {
+                    Log.d(TAG, "pre-handshake text: ${text.take(120)}")
+                }
+                return
+            }
+            if (relayMode && e2eeReady) {
+                Log.w(TAG, "unexpected text message after E2EE ready: ${text.take(80)}")
+                return
+            }
             handleMessage(text)
+        }
+
+        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+            if (relayMode && e2eeReady) {
+                val key = e2eeSharedKey ?: return
+                val plaintext = E2eeCrypto.decrypt(bytes.toByteArray(), key)
+                if (plaintext != null) {
+                    handleMessage(String(plaintext, Charsets.UTF_8))
+                } else {
+                    Log.w(TAG, "E2EE decrypt failed (${bytes.size} bytes)")
+                }
+            } else {
+                Log.w(TAG, "unexpected binary message in non-relay or pre-handshake")
+            }
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -479,14 +644,18 @@ class PaseoDaemonClient(
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "onClosed() code=$code reason=$reason")
             pingJob?.cancel()
-            if (currentHost != null) scheduleReconnect()
+            handshakeJob?.cancel()
+            e2eeReady = false
+            if (shouldReconnect()) scheduleReconnect()
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.e(TAG, "onFailure()", t)
             pingJob?.cancel()
+            handshakeJob?.cancel()
+            e2eeReady = false
             _connectionState.value = ConnectionState.Error
-            if (currentHost != null) scheduleReconnect()
+            if (shouldReconnect()) scheduleReconnect()
         }
     }
 }

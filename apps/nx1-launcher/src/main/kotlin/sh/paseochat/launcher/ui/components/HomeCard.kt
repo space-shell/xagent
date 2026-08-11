@@ -73,6 +73,7 @@ fun HomeCard(
     connectionStates: Map<String, ConnectionState>,
     workspaces: List<Pair<String, WorkspaceOption>>,
     providerModels: List<ProviderModelOption>,
+    serverNames: Map<String, String>,
     shPaseoInstalled: Boolean,
     sidebarSide: SidebarSide,
     resetSignal: Int,
@@ -209,11 +210,11 @@ fun HomeCard(
                             title = "Server",
                             subtext = selectedProfileId?.let { id ->
                                 connectedProfiles.firstOrNull { it.id == id }?.let { p ->
-                                    p.label.ifBlank { p.host.ifBlank { p.id } }
+                                    serverNames[id]?.ifBlank { null } ?: p.label.ifBlank { p.host.ifBlank { p.id } }
                                 }
                             },
                             optionCount = connectedProfiles.size,
-                            currentTitle = current?.label?.ifBlank { current.host.ifBlank { current.id } },
+                            currentTitle = current?.let { serverNames[it.id]?.ifBlank { null } ?: it.label.ifBlank { it.host.ifBlank { it.id } } },
                             currentSubtitle = if (current != null) "connected" else null,
                             sidebarSide = sidebarSide,
                             onCycle = { delta ->

@@ -574,6 +574,7 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                     connectionStates = connectionStates,
                                     workspaces = flatWorkspaces,
                                     providerModels = flatProviderModels,
+                                    serverNames = serverNames,
                                     shPaseoInstalled = shPaseoInstalled,
                                     sidebarSide = sidebarSide,
                                     resetSignal = homeResetSignal,

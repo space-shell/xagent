@@ -71,8 +71,8 @@ private val RestartRed = Color(0xFFE57373)
 fun HomeCard(
     profiles: List<ConnectionProfile>,
     connectionStates: Map<String, ConnectionState>,
-    workspaces: List<Pair<String, WorkspaceOption>>,
-    providerModels: List<ProviderModelOption>,
+    workspacesByProfile: Map<String, List<WorkspaceOption>>,
+    providerModelsByProfile: Map<String, List<ProviderModelOption>>,
     serverNames: Map<String, String>,
     shPaseoInstalled: Boolean,
     sidebarSide: SidebarSide,
@@ -130,6 +130,12 @@ fun HomeCard(
     val connectedProfiles = profiles.filter {
         connectionStates[it.id] == ConnectionState.Connected
     }
+    val profileWorkspaces: List<Pair<String, WorkspaceOption>> = selectedProfileId
+        ?.let { pid -> workspacesByProfile[pid]?.map { pid to it } }
+        ?: emptyList()
+    val profileModels: List<ProviderModelOption> = selectedProfileId
+        ?.let { pid -> providerModelsByProfile[pid] }
+        ?: emptyList()
     val displayedError = wizardError ?: localError
 
     Box(
@@ -233,22 +239,22 @@ fun HomeCard(
                     }
 
                     STEP_PROJECT -> {
-                        val current = workspaces.getOrNull(projectIndex)
+                        val current = profileWorkspaces.getOrNull(projectIndex)
                         CyclingStep(
                             title = "Project",
                             subtext = selectedWorkspace?.second?.label,
-                            optionCount = workspaces.size,
+                            optionCount = profileWorkspaces.size,
                             currentTitle = current?.second?.label,
                             currentSubtitle = current?.second?.rootPath?.ifBlank { current?.second?.id },
                             sidebarSide = sidebarSide,
                             onCycle = { delta ->
-                                if (workspaces.isNotEmpty()) {
-                                    val sz = workspaces.size
+                                if (profileWorkspaces.isNotEmpty()) {
+                                    val sz = profileWorkspaces.size
                                     projectIndex = ((projectIndex + delta) % sz + sz) % sz
                                 }
                             },
                             onCommit = {
-                                val ws = workspaces.getOrNull(projectIndex) ?: return@CyclingStep
+                                val ws = profileWorkspaces.getOrNull(projectIndex) ?: return@CyclingStep
                                 selectedWorkspace = ws
                                 modelIndex = 0
                                 step = STEP_MODEL
@@ -257,22 +263,22 @@ fun HomeCard(
                     }
 
                     STEP_MODEL -> {
-                        val current = providerModels.getOrNull(modelIndex)
+                        val current = profileModels.getOrNull(modelIndex)
                         CyclingStep(
                             title = "Model",
                             subtext = selectedModel?.label,
-                            optionCount = providerModels.size,
+                            optionCount = profileModels.size,
                             currentTitle = current?.label,
                             currentSubtitle = current?.provider,
                             sidebarSide = sidebarSide,
                             onCycle = { delta ->
-                                if (providerModels.isNotEmpty()) {
-                                    val sz = providerModels.size
+                                if (profileModels.isNotEmpty()) {
+                                    val sz = profileModels.size
                                     modelIndex = ((modelIndex + delta) % sz + sz) % sz
                                 }
                             },
                             onCommit = {
-                                val m = providerModels.getOrNull(modelIndex) ?: return@CyclingStep
+                                val m = profileModels.getOrNull(modelIndex) ?: return@CyclingStep
                                 selectedModel = m
                                 step = STEP_PROMPT
                             },

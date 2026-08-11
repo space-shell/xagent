@@ -335,13 +335,6 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
     val lastCreatedAgentId by connectionManager.lastCreatedAgentId.collectAsState()
     val wizardError by connectionManager.wizardError.collectAsState()
 
-    val flatWorkspaces = remember(workspacesByProfile) {
-        connectionManager.allWorkspaces()
-    }
-    val flatProviderModels = remember(providerModelsByProfile) {
-        connectionManager.allProviderModels()
-    }
-
     var homeResetSignal by remember { mutableIntStateOf(0) }
     var homeWizardVisible by remember { mutableStateOf(false) }
 
@@ -572,8 +565,8 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                 HomeCard(
                                     profiles = profiles,
                                     connectionStates = connectionStates,
-                                    workspaces = flatWorkspaces,
-                                    providerModels = flatProviderModels,
+                                    workspacesByProfile = workspacesByProfile,
+                                    providerModelsByProfile = providerModelsByProfile,
                                     serverNames = serverNames,
                                     shPaseoInstalled = shPaseoInstalled,
                                     sidebarSide = sidebarSide,

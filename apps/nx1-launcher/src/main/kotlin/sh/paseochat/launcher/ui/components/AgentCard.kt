@@ -44,12 +44,10 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PauseCircleOutline
-import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -106,7 +104,6 @@ fun AgentCard(
     onDeny: () -> Unit = {},
     onApproveAlways: (() -> Unit)? = null,
     onSelectOption: (PermOption) -> Unit = {},
-    onCustomAnswer: (String) -> Unit = {},
     onArchive: () -> Unit = {},
     onConfirmTranscript: () -> Unit = {},
     onCancelTranscript: () -> Unit = {},
@@ -267,7 +264,9 @@ fun AgentCard(
                                     haptics.confirm()
                                     onSelectOption(opt)
                                 },
-                                onCustomAnswer = onCustomAnswer,
+                                listening = listening,
+                                onMicDown = onMicDown,
+                                onMicUp = onMicUp,
                             )
                         } else if (session.state == AgentState.AwaitingInput) {
                             ApprovalBar(
@@ -291,168 +290,6 @@ fun AgentCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun MicButton(
-    listening: Boolean,
-    onMicDown: () -> Unit,
-    onMicUp: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val cs = MaterialTheme.colorScheme
-    val pulseScale = if (listening) {
-        rememberInfiniteTransition(label = "mic-scale-t").animateFloat(
-            initialValue = 1f,
-            targetValue = 1.18f,
-            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-            label = "mic-scale",
-        ).value
-    } else {
-        1f
-    }
-    val ringAlpha = if (listening) {
-        rememberInfiniteTransition(label = "mic-ring-t").animateFloat(
-            initialValue = 0.85f,
-            targetValue = 0.25f,
-            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-            label = "mic-ring",
-        ).value
-    } else {
-        0f
-    }
-    Box(
-        modifier = modifier
-            .size(44.dp)
-            .graphicsLayer {
-                scaleX = pulseScale
-                scaleY = pulseScale
-            }
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        delay(250)
-                        onMicDown()
-                        try {
-                            tryAwaitRelease()
-                        } finally {
-                            onMicUp()
-                        }
-                    },
-                )
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (listening) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(R1Orange.copy(alpha = ringAlpha)),
-            )
-        }
-        Box(
-            Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(if (listening) R1Orange else cs.primary),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = if (listening) Icons.Filled.Mic else Icons.Outlined.Mic,
-                contentDescription = "Hold to talk",
-                tint = if (listening) Color.White else cs.onPrimary,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ConfirmCancelBar(
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(cs.error)
-                .clickable(onClick = onCancel),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Close,
-                contentDescription = "Cancel",
-                tint = cs.onError,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(cs.primary)
-                .clickable(onClick = onConfirm),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Check,
-                contentDescription = "Send",
-                tint = cs.onPrimary,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ListeningLine(partialText: String) {
-    val dotAlpha = rememberInfiniteTransition(label = "listen-t").animateFloat(
-        initialValue = 1f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
-        label = "listen-dot",
-    ).value
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(R1Orange.copy(alpha = dotAlpha)),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            if (partialText.isBlank()) "Listening\u2026" else partialText,
-            style = MaterialTheme.typography.bodySmall,
-            color = R1Orange,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun TranscriptBubble(text: String, textColor: Color) {
-    Surface(
-        color = textColor.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Text(
-            text,
-            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = textColor,
-            maxLines = 4,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
@@ -507,21 +344,24 @@ private fun ApprovalBar(
 private fun QuestionBar(
     options: List<PermOption>,
     onSelectOption: (PermOption) -> Unit,
-    onCustomAnswer: (String) -> Unit,
+    listening: Boolean,
+    onMicDown: () -> Unit,
+    onMicUp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
-    var customText by remember { mutableStateOf("") }
     val scrollState = rememberScrollState()
 
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(max = 200.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Bottom,
     ) {
         Column(
             modifier = Modifier
-                .weight(1f, fill = false)
+                .weight(1f)
                 .verticalScroll(scrollState),
         ) {
             options.forEach { option ->
@@ -546,42 +386,11 @@ private fun QuestionBar(
                 }
             }
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            OutlinedTextField(
-                value = customText,
-                onValueChange = { customText = it },
-                placeholder = { Text("Custom\u2026", style = MaterialTheme.typography.bodySmall) },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f),
-            )
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(cs.primary)
-                    .clickable {
-                        if (customText.isNotBlank()) {
-                            onCustomAnswer(customText.trim())
-                            customText = ""
-                        }
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.Send,
-                    contentDescription = "Send",
-                    tint = cs.onPrimary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
+        MicButton(
+            listening = listening,
+            onMicDown = onMicDown,
+            onMicUp = onMicUp,
+        )
     }
 }
 

@@ -405,21 +405,19 @@ fun LauncherScreen() {
                                             )
                                         }
                                     },
-                                    onCustomAnswer = { text ->
-                                        val permId = session.pendingPermissionId
-                                        if (permId != null) {
-                                            connectionManager.respondToPermissionWithAction(
-                                                session.id, permId,
-                                                customAnswer = text,
-                                            )
-                                        }
-                                    },
                                     onArchive = {
                                         connectionManager.archiveAgent(session.id)
                                     },
                                     onConfirmTranscript = {
                                         pendingTranscript?.let { text ->
-                                            connectionManager.sendAgentMessage(session.id, text)
+                                            if (session.permissionKind == "question" && session.pendingPermissionId != null) {
+                                                connectionManager.respondToPermissionWithAction(
+                                                    session.id, session.pendingPermissionId,
+                                                    customAnswer = text,
+                                                )
+                                            } else {
+                                                connectionManager.sendAgentMessage(session.id, text)
+                                            }
                                         }
                                         pendingTranscript = null
                                         pendingSessionId = null

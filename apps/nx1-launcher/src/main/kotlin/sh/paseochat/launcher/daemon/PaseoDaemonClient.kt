@@ -406,6 +406,8 @@ class PaseoDaemonClient(
             "fetch_agents_response" -> handleFetchAgentsResponse(message)
             "agent_update" -> handleAgentUpdate(message)
             "agent_stream" -> handleAgentStream(message)
+            "agent_permission_request" -> handleAgentPermissionRequest(message)
+            "agent_permission_resolved" -> handleAgentPermissionResolved(message)
             "rpc_error" -> {
                 val payload = message["payload"]?.jsonObject
                 val error = payload?.get("error")?.jsonPrimitive?.contentOrNull
@@ -422,6 +424,67 @@ class PaseoDaemonClient(
                 }
             }
             else -> Log.d(TAG, "session message type=$msgType: ${message.toString().take(200)}")
+        }
+    }
+
+    private fun handleAgentPermissionRequest(message: JsonObject) {
+        val payload = message["payload"]?.jsonObject ?: return
+        val agentId = payload["agentId"]?.jsonPrimitive?.contentOrNull ?: return
+        val request = payload["request"]?.jsonObject ?: run {
+            Log.w(TAG, "agent_permission_request missing request: ${message.toString().take(300)}")
+            return
+        }
+        val reqId = request["id"]?.jsonPrimitive?.contentOrNull ?: return
+        val kind = request["kind"]?.jsonPrimitive?.contentOrNull ?: "other"
+        val title = request["title"]?.jsonPrimitive?.contentOrNull
+            ?: request["name"]?.jsonPrimitive?.contentOrNull
+            ?: request["description"]?.jsonPrimitive?.contentOrNull
+        val desc = request["description"]?.jsonPrimitive?.contentOrNull
+        val actions = request["actions"] as? JsonArray
+        val options = actions?.mapNotNull { action ->
+            val actionObj = action.jsonObject
+            val actionId = actionObj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val actionLabel = actionObj["label"]?.jsonPrimitive?.contentOrNull ?: actionId
+            val actionBehavior = actionObj["behavior"]?.jsonPrimitive?.contentOrNull ?: "allow"
+            PermOption(id = actionId, label = actionLabel, allow = actionBehavior == "allow")
+        } ?: emptyList()
+
+        Log.d(TAG, "agent_permission_request agentId=$agentId reqId=$reqId kind=$kind title=${title?.take(60)} options=${options.size} raw=${message.toString().take(300)}")
+
+        val current = _agents.value
+        val idx = current.indexOfFirst { it.id == agentId }
+        if (idx >= 0) {
+            val session = current[idx]
+            val updated = session.copy(
+                state = AgentState.AwaitingInput,
+                pendingPermissionId = reqId,
+                permissionKind = kind,
+                permissionTitle = title,
+                permissionOptions = options,
+                summary = desc ?: title ?: session.summary,
+            )
+            _agents.value = current.toMutableList().apply { this[idx] = updated }
+        } else {
+            Log.w(TAG, "agent_permission_request for unknown agentId=$agentId")
+        }
+    }
+
+    private fun handleAgentPermissionResolved(message: JsonObject) {
+        val payload = message["payload"]?.jsonObject ?: return
+        val agentId = payload["agentId"]?.jsonPrimitive?.contentOrNull ?: return
+        Log.d(TAG, "agent_permission_resolved agentId=$agentId")
+        val current = _agents.value
+        val idx = current.indexOfFirst { it.id == agentId }
+        if (idx >= 0) {
+            val session = current[idx]
+            val updated = session.copy(
+                pendingPermissionId = null,
+                permissionKind = null,
+                permissionTitle = null,
+                permissionOptions = emptyList(),
+                state = AgentState.Idle,
+            )
+            _agents.value = current.toMutableList().apply { this[idx] = updated }
         }
     }
 

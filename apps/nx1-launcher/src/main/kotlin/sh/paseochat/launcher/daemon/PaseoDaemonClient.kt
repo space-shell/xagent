@@ -282,15 +282,18 @@ class PaseoDaemonClient(
                 put("requestId", UUID.randomUUID().toString())
                 putJsonArray("sort") {
                     addJsonObject {
-                        put("key", "activityAt")
+                        put("key", "activity_at")
                         put("direction", "desc")
                     }
                 }
-                put("page", 0)
-                put("pageSize", 100)
+                putJsonObject("page") {
+                    put("limit", 100)
+                }
             }
         }
-        sendOrEncrypt(DaemonJson.encodeToString(JsonObject.serializer(), msg))
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "fetchWorkspaces() $json")
+        sendOrEncrypt(json)
     }
 
     fun fetchProviderModels() {
@@ -301,7 +304,9 @@ class PaseoDaemonClient(
                 put("requestId", UUID.randomUUID().toString())
             }
         }
-        sendOrEncrypt(DaemonJson.encodeToString(JsonObject.serializer(), msg))
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "fetchProviderModels() $json")
+        sendOrEncrypt(json)
     }
 
     suspend fun createAgent(
@@ -496,7 +501,7 @@ class PaseoDaemonClient(
                 val payload = message["payload"]?.jsonObject
                 val error = payload?.get("error")?.jsonPrimitive?.contentOrNull
                 val requestId = payload?.get("requestId")?.jsonPrimitive?.contentOrNull
-                Log.w(TAG, "rpc_error: $error requestId=$requestId")
+                Log.w(TAG, "rpc_error: $error requestId=$requestId payload=$payload")
                 if (requestId != null) {
                     synchronized(pendingCreateRequests) { pendingCreateRequests.remove(requestId) }
                         ?.complete(CreateAgentResult.Failure(error ?: "rpc_error", error))
@@ -590,6 +595,8 @@ class PaseoDaemonClient(
                     Log.d(TAG, "server_info received — hostname=$hostname serverId=$sid")
                     sessionReady = true
                     sendFetchAgents()
+                    fetchWorkspaces()
+                    fetchProviderModels()
                 }
             }
             "agent_created" -> {

@@ -20,7 +20,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -121,7 +121,7 @@ private sealed class DeckPage(val key: String) {
 }
 
 @Composable
-fun LauncherScreen() {
+fun LauncherScreen(attentionAgentId: String? = null) {
     val context = LocalContext.current
     var service by remember { mutableStateOf<PaseoConnectionService?>(null) }
     val serviceConnection = remember {
@@ -145,7 +145,7 @@ fun LauncherScreen() {
     }
     val svc = service
     if (svc != null) {
-        LauncherScreenContent(svc.connectionManager)
+        LauncherScreenContent(svc.connectionManager, attentionAgentId)
     } else {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -154,7 +154,7 @@ fun LauncherScreen() {
 }
 
 @Composable
-private fun LauncherScreenContent(connectionManager: ConnectionManager) {
+private fun LauncherScreenContent(connectionManager: ConnectionManager, attentionAgentId: String? = null) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -348,7 +348,6 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager) {
     LaunchedEffect(currentPage) {
         val homeVisible = currentPage == 0 && pages.firstOrNull() is DeckPage.Home
         if (homeVisible && !homeWizardVisible) {
-            homeResetSignal++
             connectionManager.refreshWizardData()
         }
         homeWizardVisible = homeVisible
@@ -360,6 +359,16 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager) {
         val idx = pages.indexOfFirst { it is DeckPage.Agent && it.session.id == id }
         if (idx >= 0) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            scope.launch {
+                offset.animateTo(idx.toFloat(), spring(dampingRatio = Spring.DampingRatioLowBouncy))
+            }
+        }
+    }
+
+    LaunchedEffect(attentionAgentId, pages) {
+        val id = attentionAgentId ?: return@LaunchedEffect
+        val idx = pages.indexOfFirst { it is DeckPage.Agent && it.session.id == id }
+        if (idx >= 0 && idx != offset.value.roundToInt()) {
             scope.launch {
                 offset.animateTo(idx.toFloat(), spring(dampingRatio = Spring.DampingRatioLowBouncy))
             }
@@ -391,38 +400,11 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager) {
             val fanStepPx = with(density) { FAN_STEP.toPx() }
             val belowStepPx = with(density) { BELOW_STEP.toPx() }
 
-            val nestedScrollConnection = remember {
-                object : NestedScrollConnection {
-                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset = Offset.Zero
-
-                    override fun onPostScroll(
-                        consumed: Offset,
-                        available: Offset,
-                        source: NestedScrollSource,
-                    ): Offset {
-                        if (pageHeightPx <= 0f || available.y == 0f) return Offset.Zero
-                        val delta = (available.y / pageHeightPx) * SWIPE_SENSITIVITY
-                        val target = (offset.value + delta).coerceIn(0f, maxIndex.toFloat())
-                        scope.launch { offset.snapTo(target) }
-                        return available
-                    }
-
-                    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                        if (pageHeightPx <= 0f || available.y == 0f) return Velocity.Zero
-                        val predicted = offset.value + (available.y / pageHeightPx) * 0.15f * SWIPE_SENSITIVITY
-                        val target = predicted.roundToInt().coerceIn(0, maxIndex).toFloat()
-                        offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
-                        return available
-                    }
-                }
-            }
-
             var velocityTracker by remember { mutableStateOf(VelocityTracker()) }
 
             Box(
                 Modifier
                     .fillMaxSize()
-                    .nestedScroll(nestedScrollConnection)
                     .pointerInput(pages.size, pageHeightPx) {
                         detectVerticalDragGestures(
                             onDragStart = { velocityTracker = VelocityTracker() },
@@ -628,12 +610,6 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager) {
                                         }
                                     },
                                     onLaunchPaseo = launchPaseo,
-                                    onAddConnection = {
-                                        val settingsIdx = pages.indexOfFirst { it is DeckPage.Settings }
-                                        if (settingsIdx >= 0) {
-                                            scope.launch { offset.animateTo(settingsIdx.toFloat(), spring(dampingRatio = Spring.DampingRatioLowBouncy)) }
-                                        }
-                                    },
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
@@ -827,7 +803,7 @@ private fun SidebarIcon(
 ) {
     Box(
         modifier = Modifier
-            .pointerInput(Unit) { detectTapGestures { onTap() } }
+            .clickable { onTap() }
             .size(24.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -848,7 +824,7 @@ private fun AttentionDot(
     val cs = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
-            .pointerInput(Unit) { detectTapGestures { onTap() } }
+            .clickable { onTap() }
             .size(24.dp),
         contentAlignment = Alignment.Center,
     ) {

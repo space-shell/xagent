@@ -14,8 +14,8 @@ android {
         applicationId = "sh.paseochat.launcher"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
     }
 
     buildFeatures {
@@ -37,16 +37,39 @@ android {
         }
     }
 
+    val keystorePath = providers.environmentVariable("SIGNING_KEYSTORE_PATH").orNull
+    val keystorePassword = providers.environmentVariable("SIGNING_KEYSTORE_PASSWORD").orNull
+    val keyAlias = providers.environmentVariable("SIGNING_KEY_ALIAS").orNull
+    val keyPassword = providers.environmentVariable("SIGNING_KEY_PASSWORD").orNull
+    val hasSigningConfig = listOf(keystorePath, keystorePassword, keyAlias, keyPassword).all { !it.isNullOrBlank() }
+
+    if (hasSigningConfig) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystorePath!!)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
         }
         release {
-            isMinifyEnabled = true
+            // Minify disabled until proper keep rules are in place for
+            // kotlinx-serialization, CameraX, and Lazysodium. Re-enabling
+            // without those rules breaks runtime.
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }

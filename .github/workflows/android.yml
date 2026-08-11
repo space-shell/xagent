@@ -56,6 +56,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      SIGNING_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+      SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -81,17 +86,20 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0"
 
-      - name: Assemble debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Decode signing keystore
+        run: echo "${{ secrets.SIGNING_KEYSTORE_BASE64 }}" | base64 -d > "$SIGNING_KEYSTORE_PATH"
+
+      - name: Assemble release APK
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK to include tag
         run: |
-          mv apps/nx1-launcher/build/outputs/apk/debug/app-debug.apk \
-             apps/nx1-launcher/build/outputs/apk/debug/xagent-${{ github.ref_name }}-debug.apk
+          mv apps/nx1-launcher/build/outputs/apk/release/app-release.apk \
+             apps/nx1-launcher/build/outputs/apk/release/xagent-${{ github.ref_name }}-release.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: apps/nx1-launcher/build/outputs/apk/debug/xagent-${{ github.ref_name }}-debug.apk
+          files: apps/nx1-launcher/build/outputs/apk/release/xagent-${{ github.ref_name }}-release.apk
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}

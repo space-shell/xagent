@@ -57,7 +57,7 @@ jobs:
     permissions:
       contents: write
     env:
-      SIGNING_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+      SIGNING_KEYSTORE_PATH: ${{ github.workspace }}/release.jks
       SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
       SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
       SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}

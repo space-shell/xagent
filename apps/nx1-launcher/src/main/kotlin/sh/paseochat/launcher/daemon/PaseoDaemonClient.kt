@@ -11,14 +11,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -33,13 +39,18 @@ import sh.paseochat.launcher.daemon.models.PingEnvelope
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
+import sh.paseochat.launcher.model.CreateAgentResult
 import sh.paseochat.launcher.model.PermOption
+import sh.paseochat.launcher.model.ProviderModelOption
+import sh.paseochat.launcher.model.WorkspaceOption
 import java.util.UUID
 
 private const val TAG = "PaseoDaemonClient"
 private const val PING_INTERVAL_MS = 30_000L
 private const val MAX_RECONNECT_MS = 30_000L
 private const val HANDSHAKE_RETRY_MS = 1_000L
+
+private const val CREATE_AGENT_TIMEOUT_MS = 60_000L
 
 data class RelayConfig(
     val serverId: String,
@@ -63,6 +74,14 @@ class PaseoDaemonClient(
 
     private val _serverId = MutableStateFlow("")
     val serverId: StateFlow<String> = _serverId.asStateFlow()
+
+    private val _workspaces = MutableStateFlow<List<WorkspaceOption>>(emptyList())
+    val workspaces: StateFlow<List<WorkspaceOption>> = _workspaces.asStateFlow()
+
+    private val _providerModels = MutableStateFlow<List<ProviderModelOption>>(emptyList())
+    val providerModels: StateFlow<List<ProviderModelOption>> = _providerModels.asStateFlow()
+
+    private val pendingCreateRequests = mutableMapOf<String, kotlinx.coroutines.CompletableDeferred<CreateAgentResult>>()
 
     private val timelineSummaries = mutableMapOf<String, String>()
 
@@ -255,6 +274,69 @@ class PaseoDaemonClient(
         sendOrEncrypt(json)
     }
 
+    fun fetchWorkspaces() {
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "fetch_workspaces_request")
+                put("requestId", UUID.randomUUID().toString())
+                putJsonArray("sort") {
+                    addJsonObject {
+                        put("key", "activityAt")
+                        put("direction", "desc")
+                    }
+                }
+                put("page", 0)
+                put("pageSize", 100)
+            }
+        }
+        sendOrEncrypt(DaemonJson.encodeToString(JsonObject.serializer(), msg))
+    }
+
+    fun fetchProviderModels() {
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "get_providers_snapshot_request")
+                put("requestId", UUID.randomUUID().toString())
+            }
+        }
+        sendOrEncrypt(DaemonJson.encodeToString(JsonObject.serializer(), msg))
+    }
+
+    suspend fun createAgent(
+        workspaceId: String,
+        provider: String,
+        modelId: String?,
+        initialPrompt: String,
+        modeId: String = "auto",
+    ): CreateAgentResult {
+        val requestId = UUID.randomUUID().toString()
+        val deferred = kotlinx.coroutines.CompletableDeferred<CreateAgentResult>()
+        synchronized(pendingCreateRequests) { pendingCreateRequests[requestId] = deferred }
+
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "create_agent_request")
+                put("requestId", requestId)
+                put("workspaceId", workspaceId)
+                put("initialPrompt", initialPrompt)
+                putJsonObject("config") {
+                    put("provider", provider)
+                    if (!modelId.isNullOrBlank()) put("model", modelId)
+                    put("modeId", modeId)
+                }
+            }
+        }
+        sendOrEncrypt(DaemonJson.encodeToString(JsonObject.serializer(), msg))
+
+        return withTimeoutOrNull(CREATE_AGENT_TIMEOUT_MS) { deferred.await() }
+            ?: CreateAgentResult.Failure("timeout", "timeout").also {
+                synchronized(pendingCreateRequests) { pendingCreateRequests.remove(requestId) }
+            }
+    }
+
     private fun doConnect() {
         if (relayMode) {
             val config = relayConfig ?: return
@@ -408,10 +490,17 @@ class PaseoDaemonClient(
             "agent_stream" -> handleAgentStream(message)
             "agent_permission_request" -> handleAgentPermissionRequest(message)
             "agent_permission_resolved" -> handleAgentPermissionResolved(message)
+            "fetch_workspaces_response" -> handleFetchWorkspacesResponse(message)
+            "get_providers_snapshot_response" -> handleProvidersSnapshotResponse(message)
             "rpc_error" -> {
                 val payload = message["payload"]?.jsonObject
                 val error = payload?.get("error")?.jsonPrimitive?.contentOrNull
-                Log.w(TAG, "rpc_error: $error")
+                val requestId = payload?.get("requestId")?.jsonPrimitive?.contentOrNull
+                Log.w(TAG, "rpc_error: $error requestId=$requestId")
+                if (requestId != null) {
+                    synchronized(pendingCreateRequests) { pendingCreateRequests.remove(requestId) }
+                        ?.complete(CreateAgentResult.Failure(error ?: "rpc_error", error))
+                }
             }
             "send_agent_message_response" -> {
                 val payload = message["payload"]?.jsonObject
@@ -491,15 +580,84 @@ class PaseoDaemonClient(
     private fun handleStatusMessage(message: JsonObject) {
         val payload = message["payload"]?.jsonObject ?: return
         val status = payload["status"]?.jsonPrimitive?.contentOrNull ?: return
-        if (status == "server_info" && !sessionReady) {
-            val hostname = payload["hostname"]?.jsonPrimitive?.contentOrNull
-            _serverName.value = hostname ?: ""
-            val sid = payload["serverId"]?.jsonPrimitive?.contentOrNull
-            if (!sid.isNullOrBlank()) _serverId.value = sid
-            Log.d(TAG, "server_info received — hostname=$hostname serverId=$sid")
-            sessionReady = true
-            sendFetchAgents()
+        when (status) {
+            "server_info" -> {
+                if (!sessionReady) {
+                    val hostname = payload["hostname"]?.jsonPrimitive?.contentOrNull
+                    _serverName.value = hostname ?: ""
+                    val sid = payload["serverId"]?.jsonPrimitive?.contentOrNull
+                    if (!sid.isNullOrBlank()) _serverId.value = sid
+                    Log.d(TAG, "server_info received — hostname=$hostname serverId=$sid")
+                    sessionReady = true
+                    sendFetchAgents()
+                }
+            }
+            "agent_created" -> {
+                val requestId = payload["requestId"]?.jsonPrimitive?.contentOrNull
+                val agentId = payload["agentId"]?.jsonPrimitive?.contentOrNull
+                    ?: payload["agent"]?.jsonObject?.get("id")?.jsonPrimitive?.contentOrNull
+                Log.d(TAG, "agent_created requestId=$requestId agentId=$agentId")
+                if (requestId != null && agentId != null) {
+                    synchronized(pendingCreateRequests) { pendingCreateRequests.remove(requestId) }
+                        ?.complete(CreateAgentResult.Success(agentId))
+                }
+            }
+            "agent_create_failed" -> {
+                val requestId = payload["requestId"]?.jsonPrimitive?.contentOrNull
+                val error = payload["error"]?.jsonPrimitive?.contentOrNull
+                    ?: payload["message"]?.jsonPrimitive?.contentOrNull
+                    ?: "agent_create_failed"
+                Log.w(TAG, "agent_create_failed requestId=$requestId error=$error")
+                if (requestId != null) {
+                    synchronized(pendingCreateRequests) { pendingCreateRequests.remove(requestId) }
+                        ?.complete(CreateAgentResult.Failure(error))
+                }
+            }
         }
+    }
+
+    private fun handleFetchWorkspacesResponse(message: JsonObject) {
+        val payload = message["payload"]?.jsonObject ?: return
+        val entries = payload["entries"]?.jsonArray ?: emptyList()
+        val list = entries.mapNotNull { el ->
+            val obj = el.jsonObject
+            val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val projectId = obj["projectId"]?.jsonPrimitive?.contentOrNull ?: ""
+            val projectDisplayName = obj["projectDisplayName"]?.jsonPrimitive?.contentOrNull
+            val name = obj["name"]?.jsonPrimitive?.contentOrNull
+            val title = obj["title"]?.jsonPrimitive?.contentOrNull
+            val rootPath = obj["projectRootPath"]?.jsonPrimitive?.contentOrNull
+                ?: obj["workspaceDirectory"]?.jsonPrimitive?.contentOrNull
+                ?: ""
+            val label = projectDisplayName ?: title ?: name ?: id
+            WorkspaceOption(id, projectId, label, rootPath)
+        }
+        Log.d(TAG, "fetch_workspaces_response: ${list.size} entries")
+        _workspaces.value = list
+    }
+
+    private fun handleProvidersSnapshotResponse(message: JsonObject) {
+        val payload = message["payload"]?.jsonObject ?: return
+        val entries = payload["entries"]?.jsonArray ?: emptyList()
+        val list = mutableListOf<ProviderModelOption>()
+        for (entry in entries) {
+            val obj = entry.jsonObject
+            val provider = obj["provider"]?.jsonPrimitive?.contentOrNull ?: continue
+            val enabled = obj["enabled"]?.jsonPrimitive?.booleanOrNull ?: true
+            if (!enabled) continue
+            val models = obj["models"]?.jsonArray ?: continue
+            for (model in models) {
+                val m = model.jsonObject
+                val modelId = m["id"]?.jsonPrimitive?.contentOrNull ?: continue
+                val isSelectable = m["isSelectable"]?.jsonPrimitive?.booleanOrNull ?: true
+                if (!isSelectable) continue
+                val label = m["label"]?.jsonPrimitive?.contentOrNull ?: modelId
+                val isDefault = m["isDefault"]?.jsonPrimitive?.booleanOrNull ?: false
+                list.add(ProviderModelOption(provider, modelId, label, isDefault))
+            }
+        }
+        Log.d(TAG, "get_providers_snapshot_response: ${list.size} models")
+        _providerModels.value = list
     }
 
     private fun handleFetchAgentsResponse(message: JsonObject) {

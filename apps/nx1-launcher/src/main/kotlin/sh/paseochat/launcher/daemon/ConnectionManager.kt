@@ -15,6 +15,9 @@ import sh.paseochat.launcher.daemon.models.ConnectionState
 import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.ConnectionProfile
 import sh.paseochat.launcher.model.ConnectionType
+import sh.paseochat.launcher.model.CreateAgentResult
+import sh.paseochat.launcher.model.ProviderModelOption
+import sh.paseochat.launcher.model.WorkspaceOption
 
 private const val TAG = "ConnectionManager"
 
@@ -41,6 +44,18 @@ class ConnectionManager(
 
     private val _serverIds = MutableStateFlow<Map<String, String>>(emptyMap())
     val serverIds: StateFlow<Map<String, String>> = _serverIds.asStateFlow()
+
+    private val _workspaces = MutableStateFlow<Map<String, List<WorkspaceOption>>>(emptyMap())
+    val workspaces: StateFlow<Map<String, List<WorkspaceOption>>> = _workspaces.asStateFlow()
+
+    private val _providerModels = MutableStateFlow<Map<String, List<ProviderModelOption>>>(emptyMap())
+    val providerModels: StateFlow<Map<String, List<ProviderModelOption>>> = _providerModels.asStateFlow()
+
+    private val _lastCreatedAgentId = MutableStateFlow<String?>(null)
+    val lastCreatedAgentId: StateFlow<String?> = _lastCreatedAgentId.asStateFlow()
+
+    private val _wizardError = MutableStateFlow<String?>(null)
+    val wizardError: StateFlow<String?> = _wizardError.asStateFlow()
 
     fun connect(profile: ConnectionProfile) {
         disconnect(profile.id)
@@ -72,6 +87,20 @@ class ConnectionManager(
                     this[profile.id] = sid
                 }
                 remerge()
+            }
+        }
+        scope.launch {
+            client.workspaces.collect { ws ->
+                _workspaces.value = _workspaces.value.toMutableMap().apply {
+                    this[profile.id] = ws
+                }
+            }
+        }
+        scope.launch {
+            client.providerModels.collect { pm ->
+                _providerModels.value = _providerModels.value.toMutableMap().apply {
+                    this[profile.id] = pm
+                }
             }
         }
 
@@ -107,6 +136,12 @@ class ConnectionManager(
             remove(profileId)
         }
         _serverIds.value = _serverIds.value.toMutableMap().apply {
+            remove(profileId)
+        }
+        _workspaces.value = _workspaces.value.toMutableMap().apply {
+            remove(profileId)
+        }
+        _providerModels.value = _providerModels.value.toMutableMap().apply {
             remove(profileId)
         }
         remerge()
@@ -168,6 +203,56 @@ class ConnectionManager(
 
     fun archiveAgent(agentId: String) {
         clientForAgent(agentId)?.archiveAgent(agentId)
+    }
+
+    fun refreshWizardData() {
+        for ((_, conn) in connections) {
+            conn.client.fetchWorkspaces()
+            conn.client.fetchProviderModels()
+        }
+    }
+
+    fun allWorkspaces(): List<Pair<String, WorkspaceOption>> {
+        return connections.entries.sortedBy { entry ->
+            if (entry.value.profile.connectionType == ConnectionType.DIRECT) 0 else 1
+        }.flatMap { (profileId, conn) ->
+            conn.client.workspaces.value.map { profileId to it }
+        }
+    }
+
+    fun allProviderModels(): List<ProviderModelOption> {
+        val seen = HashSet<String>()
+        return connections.values
+            .flatMap { it.client.providerModels.value }
+            .filter { seen.add("${it.provider}/${it.modelId}") }
+    }
+
+    suspend fun createAgent(
+        profileId: String,
+        workspaceId: String,
+        provider: String,
+        modelId: String?,
+        initialPrompt: String,
+    ): CreateAgentResult {
+        val client = connections[profileId]?.client
+            ?: return CreateAgentResult.Failure("connection_not_found", "connection_not_found")
+        _wizardError.value = null
+        val result = client.createAgent(workspaceId, provider, modelId, initialPrompt)
+        when (result) {
+            is CreateAgentResult.Success -> _lastCreatedAgentId.value = result.agentId
+            is CreateAgentResult.Failure -> _wizardError.value = result.error
+        }
+        return result
+    }
+
+    fun consumeLastCreatedAgentId(): String? {
+        val v = _lastCreatedAgentId.value
+        _lastCreatedAgentId.value = null
+        return v
+    }
+
+    fun clearWizardError() {
+        _wizardError.value = null
     }
 
     fun close() {

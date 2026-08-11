@@ -45,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,8 +61,10 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Velocity
@@ -90,6 +93,7 @@ import sh.paseochat.launcher.model.parseOfferFromUrl
 import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.ui.components.AppsCard
 import sh.paseochat.launcher.ui.components.ConnectionCard
+import sh.paseochat.launcher.ui.components.HomeCard
 import sh.paseochat.launcher.ui.components.SettingsCard
 import sh.paseochat.launcher.ui.theme.PaseoTheme
 import sh.paseochat.launcher.voice.rememberVoiceController
@@ -98,9 +102,12 @@ private val DECK_CARD_HEIGHT = 360.dp
 private val FAN_STEP = 32.dp
 private val BELOW_STEP = 480.dp
 private const val Z_PER_RANK = 0.20f
+
 private const val SWIPE_SENSITIVITY = 1.6f
 
+private const val HOME_LISTENING_ID = "__home_wizard__"
 private sealed class DeckPage(val key: String) {
+    data object Home : DeckPage("__home__")
     data class Agent(val session: AgentSession) : DeckPage(session.id)
     data object Apps : DeckPage("__apps__")
     data object Settings : DeckPage("__settings__")
@@ -114,6 +121,7 @@ fun LauncherScreen() {
 
     val voice = rememberVoiceController()
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
     var listeningId by remember { mutableStateOf<String?>(null) }
     var pendingTranscript by remember { mutableStateOf<String?>(null) }
     var pendingSessionId by remember { mutableStateOf<String?>(null) }
@@ -225,7 +233,8 @@ fun LauncherScreen() {
     }
 
     val pages = remember(sessions, profiles) {
-        sessions.map { DeckPage.Agent(it) } +
+        listOf(DeckPage.Home) +
+            sessions.map { DeckPage.Agent(it) } +
             listOf(DeckPage.Apps, DeckPage.Settings) +
             profiles.map { DeckPage.Connection(it) }
     }
@@ -236,6 +245,55 @@ fun LauncherScreen() {
     val currentPage by remember(offset) {
         derivedStateOf {
             offset.value.roundToInt().coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+        }
+    }
+
+    val workspacesByProfile by connectionManager.workspaces.collectAsState()
+    val providerModelsByProfile by connectionManager.providerModels.collectAsState()
+    val lastCreatedAgentId by connectionManager.lastCreatedAgentId.collectAsState()
+    val wizardError by connectionManager.wizardError.collectAsState()
+
+    val flatWorkspaces = remember(workspacesByProfile) {
+        connectionManager.allWorkspaces()
+    }
+    val flatProviderModels = remember(providerModelsByProfile) {
+        connectionManager.allProviderModels()
+    }
+
+    var homeResetSignal by remember { mutableIntStateOf(0) }
+    var homeWizardVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentPage) {
+        val homeVisible = currentPage == 0 && pages.firstOrNull() is DeckPage.Home
+        if (homeVisible && !homeWizardVisible) {
+            homeResetSignal++
+            connectionManager.refreshWizardData()
+        }
+        homeWizardVisible = homeVisible
+    }
+
+    LaunchedEffect(lastCreatedAgentId) {
+        val id = lastCreatedAgentId ?: return@LaunchedEffect
+        connectionManager.consumeLastCreatedAgentId()
+        val idx = pages.indexOfFirst { it is DeckPage.Agent && it.session.id == id }
+        if (idx >= 0) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            scope.launch {
+                offset.animateTo(idx.toFloat(), spring(dampingRatio = Spring.DampingRatioLowBouncy))
+            }
+        }
+    }
+
+    val shPaseoInstalled = remember {
+        runCatching {
+            context.packageManager.getPackageInfo("sh.paseo", 0)
+        }.isSuccess
+    }
+    val launchPaseo: () -> Unit = {
+        runCatching {
+            context.packageManager.getLaunchIntentForPackage("sh.paseo")?.let {
+                context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
         }
     }
 
@@ -441,6 +499,57 @@ fun LauncherScreen() {
                                                     snackbarHostState.showSnackbar("Paseo failed to open: ${e.message ?: e.javaClass.simpleName}")
                                                 }
                                             }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            is DeckPage.Home -> {
+                                HomeCard(
+                                    profiles = profiles,
+                                    connectionStates = connectionStates,
+                                    workspaces = flatWorkspaces,
+                                    providerModels = flatProviderModels,
+                                    shPaseoInstalled = shPaseoInstalled,
+                                    sidebarSide = sidebarSide,
+                                    resetSignal = homeResetSignal,
+                                    listening = listeningId == HOME_LISTENING_ID,
+                                    pendingTranscript = if (pendingSessionId == HOME_LISTENING_ID) pendingTranscript else null,
+                                    wizardError = wizardError,
+                                    onMicDown = {
+                                        if (!voice.isListening) {
+                                            if (hasMicPermission) {
+                                                startListening(HOME_LISTENING_ID)
+                                            } else {
+                                                pendingListenId = HOME_LISTENING_ID
+                                                permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
+                                        }
+                                    },
+                                    onMicUp = {
+                                        if (listeningId == HOME_LISTENING_ID) voice.stop()
+                                    },
+                                    onCancelTranscript = {
+                                        pendingTranscript = null
+                                        pendingSessionId = null
+                                    },
+                                    onClearError = { connectionManager.clearWizardError() },
+                                    onCreateAgent = { pid, wid, prov, mid, prompt ->
+                                        scope.launch {
+                                            connectionManager.createAgent(
+                                                profileId = pid,
+                                                workspaceId = wid,
+                                                provider = prov,
+                                                modelId = mid,
+                                                initialPrompt = prompt,
+                                            )
+                                        }
+                                    },
+                                    onLaunchPaseo = launchPaseo,
+                                    onAddConnection = {
+                                        val settingsIdx = pages.indexOfFirst { it is DeckPage.Settings }
+                                        if (settingsIdx >= 0) {
+                                            scope.launch { offset.animateTo(settingsIdx.toFloat(), spring(dampingRatio = Spring.DampingRatioLowBouncy)) }
                                         }
                                     },
                                     modifier = Modifier.fillMaxSize(),

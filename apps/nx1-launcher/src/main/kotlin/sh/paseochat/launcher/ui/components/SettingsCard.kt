@@ -37,6 +37,8 @@ fun SettingsCard(
     onHideStatusBarChange: (Boolean) -> Unit,
     sidebarSide: SidebarSide,
     onSidebarSideChange: (SidebarSide) -> Unit,
+    keepAlive: Boolean,
+    onKeepAliveChange: (Boolean) -> Unit,
     onAddConnection: () -> Unit,
     onOpenLauncher: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -94,6 +96,20 @@ fun SettingsCard(
                 options = listOf("Left" to SidebarSide.Left, "Right" to SidebarSide.Right),
                 selected = sidebarSide,
                 onSelect = onSidebarSideChange,
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            Text(
+                "Keep alive in background",
+                style = MaterialTheme.typography.bodyMedium,
+                color = onContainerColor,
+            )
+            Spacer(Modifier.height(6.dp))
+            SegmentedToggle(
+                options = listOf("Off" to false, "On" to true),
+                selected = keepAlive,
+                onSelect = onKeepAliveChange,
             )
 
             Spacer(Modifier.weight(1f))

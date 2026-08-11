@@ -6,9 +6,13 @@ import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.IBinder
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -90,6 +95,7 @@ import sh.paseochat.launcher.model.ConnectionProfile
 import sh.paseochat.launcher.model.ConnectionType
 import sh.paseochat.launcher.model.SidebarSide
 import sh.paseochat.launcher.model.parseOfferFromUrl
+import sh.paseochat.launcher.service.PaseoConnectionService
 import sh.paseochat.launcher.ui.components.AgentCard
 import sh.paseochat.launcher.ui.components.AppsCard
 import sh.paseochat.launcher.ui.components.ConnectionCard
@@ -116,6 +122,39 @@ private sealed class DeckPage(val key: String) {
 
 @Composable
 fun LauncherScreen() {
+    val context = LocalContext.current
+    var service by remember { mutableStateOf<PaseoConnectionService?>(null) }
+    val serviceConnection = remember {
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                val b = binder as? PaseoConnectionService.LocalBinder ?: return
+                service = b.service()
+            }
+            override fun onServiceDisconnected(name: ComponentName?) {
+                service = null
+            }
+        }
+    }
+    DisposableEffect(Unit) {
+        val intent = Intent(context, PaseoConnectionService::class.java)
+        ContextCompat.startForegroundService(context, intent)
+        context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        onDispose {
+            context.unbindService(serviceConnection)
+        }
+    }
+    val svc = service
+    if (svc != null) {
+        LauncherScreenContent(svc.connectionManager)
+    } else {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+    }
+}
+
+@Composable
+private fun LauncherScreenContent(connectionManager: ConnectionManager) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -133,7 +172,6 @@ fun LauncherScreen() {
     }
     var pendingListenId by remember { mutableStateOf<String?>(null) }
 
-    val connectionManager = remember { ConnectionManager() }
     val sessions by connectionManager.allAgents.collectAsState()
     val connectionStates by connectionManager.connectionStates.collectAsState()
     val serverNames by connectionManager.serverNames.collectAsState()
@@ -141,6 +179,39 @@ fun LauncherScreen() {
     val prefs = remember { context.getSharedPreferences("daemon", Context.MODE_PRIVATE) }
     var profiles by remember { mutableStateOf(loadProfiles(prefs)) }
     var hideStatusBar by remember { mutableStateOf(prefs.getBoolean("hide_status_bar", false)) }
+    var keepAlive by remember { mutableStateOf(prefs.getBoolean("keep_alive_in_background", true)) }
+    var keepAlivePrompted by remember { mutableStateOf(prefs.getBoolean("keep_alive_prompted", false)) }
+
+    val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager }
+    val isIgnoringBatteryOptimizations = remember(keepAlive) {
+        powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    fun launchBatteryOptimizationPrompt() {
+        runCatching {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${context.packageName}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        }
+    }
+
+    fun onKeepAliveToggled(value: Boolean) {
+        keepAlive = value
+        prefs.edit().putBoolean("keep_alive_in_background", value).apply()
+        if (value && !isIgnoringBatteryOptimizations) {
+            launchBatteryOptimizationPrompt()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!keepAlivePrompted && keepAlive && !isIgnoringBatteryOptimizations) {
+            prefs.edit().putBoolean("keep_alive_prompted", true).apply()
+            keepAlivePrompted = true
+            launchBatteryOptimizationPrompt()
+        }
+    }
     var sidebarSide by remember {
         mutableStateOf(
             if (prefs.getString("sidebar_side", "right") == "left") SidebarSide.Left
@@ -191,10 +262,6 @@ fun LauncherScreen() {
         prefs.edit().putBoolean("hide_status_bar", hideStatusBar).apply()
     }
 
-    DisposableEffect(connectionManager) {
-        onDispose { connectionManager.close() }
-    }
-
     LaunchedEffect(Unit) {
         voice.onError = { msg ->
             listeningId = null
@@ -229,6 +296,21 @@ fun LauncherScreen() {
             startListening(pid)
         } else if (!granted) {
             scope.launch { snackbarHostState.showSnackbar("Microphone permission denied") }
+        }
+    }
+
+    val notificationPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        Log.d("LauncherScreen", "POST_NOTIFICATIONS granted=$granted")
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
@@ -566,6 +648,8 @@ fun LauncherScreen() {
                                     onHideStatusBarChange = { hideStatusBar = it },
                                     sidebarSide = sidebarSide,
                                     onSidebarSideChange = { sidebarSide = it },
+                                    keepAlive = keepAlive,
+                                    onKeepAliveChange = { onKeepAliveToggled(it) },
                                     onAddConnection = {
                                         val newProfile = ConnectionProfile(
                                             id = UUID.randomUUID().toString(),

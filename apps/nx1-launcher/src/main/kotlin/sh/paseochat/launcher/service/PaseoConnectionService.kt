@@ -1,0 +1,154 @@
+package sh.paseochat.launcher.service
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import sh.paseochat.launcher.MainActivity
+import sh.paseochat.launcher.daemon.ConnectionManager
+import sh.paseochat.launcher.daemon.models.ConnectionState
+import sh.paseochat.launcher.model.ConnectionProfile
+
+private const val TAG = "PaseoConnectionService"
+private const val CHANNEL_ID = "paseo_connection"
+private const val NOTIFICATION_ID = 4711
+
+class PaseoConnectionService : Service() {
+
+    private val httpClient = OkHttpClient()
+    val connectionManager: ConnectionManager = ConnectionManager(httpClient)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var stateJob: Job? = null
+
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var foreground = false
+
+    private val binder = LocalBinder()
+
+    inner class LocalBinder : android.os.Binder() {
+        fun service(): PaseoConnectionService = this@PaseoConnectionService
+    }
+
+    override fun onBind(intent: Intent?): IBinder = binder
+
+    override fun onCreate() {
+        super.onCreate()
+        ensureChannel()
+        startForeground(NOTIFICATION_ID, buildNotification(0))
+        foreground = true
+        observeConnections()
+    }
+
+    private fun observeConnections() {
+        stateJob?.cancel()
+        stateJob = scope.launch {
+            connectionManager.connectionStates.collectLatest { states ->
+                val anyConnected = states.values.any { it == ConnectionState.Connected }
+                if (anyConnected) acquireWakeLock() else releaseWakeLock()
+                refreshNotification(states.count { it.value == ConnectionState.Connected })
+            }
+        }
+    }
+
+    private fun ensureChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(NotificationManager::class.java)
+            if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "Paseo Connection",
+                    NotificationManager.IMPORTANCE_MIN,
+                ).apply {
+                    description = "Keeps the daemon connection alive in the background"
+                    setShowBadge(false)
+                }
+                nm.createNotificationChannel(channel)
+            }
+        }
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLock == null) {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xagent:paseo-connection").apply {
+                setReferenceCounted(false)
+                acquire() // Held until releaseWakeLock(); process death releases automatically
+            }
+            Log.d(TAG, "wake lock acquired")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let {
+            if (it.isHeld) it.release()
+            wakeLock = null
+            Log.d(TAG, "wake lock released")
+        }
+    }
+
+    private fun refreshNotification(connectedCount: Int) {
+        if (!foreground) return
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(NOTIFICATION_ID, buildNotification(connectedCount))
+    }
+
+    private fun buildNotification(connectedCount: Int): Notification {
+        val tapIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        val pi = PendingIntent.getActivity(
+            this, 0, tapIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val text = if (connectedCount == 0) "Idle" else "Connected to $connectedCount server${if (connectedCount == 1) "" else "s"}"
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("xagent")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setContentIntent(pi)
+            .build()
+    }
+
+    fun setProfiles(profiles: List<ConnectionProfile>) {
+        val currentIds = connectionManager.connectionStates.value.keys
+        currentIds.minus(profiles.map { it.id }.toSet()).forEach { connectionManager.disconnect(it) }
+        profiles.forEach { profile ->
+            val currentState = connectionManager.getConnectionState(profile.id)
+            if (currentState == ConnectionState.Disconnected || currentState == ConnectionState.Error) {
+                connectionManager.connect(profile)
+            }
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(TAG, "onStartCommand")
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        stateJob?.cancel()
+        releaseWakeLock()
+        connectionManager.close()
+        scope.cancel()
+        super.onDestroy()
+    }
+}

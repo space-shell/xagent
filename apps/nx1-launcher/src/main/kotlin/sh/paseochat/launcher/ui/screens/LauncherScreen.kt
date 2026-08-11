@@ -599,11 +599,12 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                         pendingSessionId = null
                                     },
                                     onClearError = { connectionManager.clearWizardError() },
-                                    onCreateAgent = { pid, wid, prov, mid, prompt ->
+                                    onCreateAgent = { pid, wid, cwd, prov, mid, prompt ->
                                         scope.launch {
                                             connectionManager.createAgent(
                                                 profileId = pid,
                                                 workspaceId = wid,
+                                                cwd = cwd,
                                                 provider = prov,
                                                 modelId = mid,
                                                 initialPrompt = prompt,
@@ -802,16 +803,21 @@ private fun SidebarIcon(
     tint: Color,
     onTap: () -> Unit,
 ) {
+    val cs = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
             .clickable { onTap() }
-            .size(24.dp),
+            .size(28.dp)
+            .then(
+                if (focused) Modifier.background(cs.primary.copy(alpha = 0.15f), CircleShape)
+                else Modifier,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (focused) MaterialTheme.colorScheme.primary else tint.copy(alpha = 0.6f),
+            tint = if (focused) cs.primary else tint.copy(alpha = 0.6f),
             modifier = Modifier.size(if (focused) 22.dp else 18.dp),
         )
     }

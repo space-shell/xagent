@@ -311,6 +311,7 @@ class PaseoDaemonClient(
 
     suspend fun createAgent(
         workspaceId: String,
+        cwd: String,
         provider: String,
         modelId: String?,
         initialPrompt: String,
@@ -329,12 +330,15 @@ class PaseoDaemonClient(
                 put("initialPrompt", initialPrompt)
                 putJsonObject("config") {
                     put("provider", provider)
+                    put("cwd", cwd)
                     if (!modelId.isNullOrBlank()) put("model", modelId)
                     put("modeId", modeId)
                 }
             }
         }
-        sendOrEncrypt(DaemonJson.encodeToString(JsonObject.serializer(), msg))
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "createAgent() $json")
+        sendOrEncrypt(json)
 
         return withTimeoutOrNull(CREATE_AGENT_TIMEOUT_MS) { deferred.await() }
             ?: CreateAgentResult.Failure("timeout", "timeout").also {

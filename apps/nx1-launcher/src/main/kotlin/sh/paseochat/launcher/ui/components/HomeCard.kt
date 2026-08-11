@@ -84,7 +84,7 @@ fun HomeCard(
     onMicUp: () -> Unit,
     onCancelTranscript: () -> Unit,
     onClearError: () -> Unit,
-    onCreateAgent: (profileId: String, workspaceId: String, provider: String, modelId: String?, prompt: String) -> Unit,
+    onCreateAgent: (profileId: String, workspaceId: String, cwd: String, provider: String, modelId: String?, prompt: String) -> Unit,
     onLaunchPaseo: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -300,7 +300,7 @@ fun HomeCard(
                                     if (transcript.isNullOrBlank()) "prompt" else null,
                                 ).joinToString(", ")}"
                             } else {
-                                onCreateAgent(pid, ws.second.id, m?.provider ?: "", m?.modelId, transcript)
+                                onCreateAgent(pid, ws.second.id, ws.second.rootPath, m?.provider ?: "", m?.modelId, transcript)
                             }
                         },
                         onCancel = onCancelTranscript,
@@ -548,18 +548,18 @@ private fun PromptStep(
         if (!pendingTranscript.isNullOrBlank()) {
             Spacer(Modifier.height(8.dp))
             ConfirmCancelBar(onConfirm = onConfirm, onCancel = onCancel)
-        }
-
-        Spacer(Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = if (sidebarSide == SidebarSide.Right) Arrangement.End else Arrangement.Start,
-        ) {
-            MicButton(
-                listening = listening,
-                onMicDown = onMicDown,
-                onMicUp = onMicUp,
-            )
+        } else {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (sidebarSide == SidebarSide.Right) Arrangement.End else Arrangement.Start,
+            ) {
+                MicButton(
+                    listening = listening,
+                    onMicDown = onMicDown,
+                    onMicUp = onMicUp,
+                )
+            }
         }
     }
 }

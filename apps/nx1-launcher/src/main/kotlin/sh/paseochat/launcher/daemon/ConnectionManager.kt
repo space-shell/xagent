@@ -230,6 +230,7 @@ class ConnectionManager(
     suspend fun createAgent(
         profileId: String,
         workspaceId: String,
+        cwd: String,
         provider: String,
         modelId: String?,
         initialPrompt: String,
@@ -237,7 +238,7 @@ class ConnectionManager(
         val client = connections[profileId]?.client
             ?: return CreateAgentResult.Failure("connection_not_found", "connection_not_found")
         _wizardError.value = null
-        val result = client.createAgent(workspaceId, provider, modelId, initialPrompt)
+        val result = client.createAgent(workspaceId, cwd, provider, modelId, initialPrompt)
         when (result) {
             is CreateAgentResult.Success -> _lastCreatedAgentId.value = result.agentId
             is CreateAgentResult.Failure -> _wizardError.value = result.error

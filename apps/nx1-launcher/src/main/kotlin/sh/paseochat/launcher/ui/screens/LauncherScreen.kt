@@ -403,6 +403,8 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
 
             val deckScrollConnection = remember(pageHeightPx, maxIndex) {
                 object : NestedScrollConnection {
+                    var childOverflowed = false
+
                     override fun onPostScroll(
                         consumed: Offset,
                         available: Offset,
@@ -410,12 +412,28 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                     ): Offset {
                         if (source != NestedScrollSource.UserInput) return Offset.Zero
                         if (pageHeightPx > 0f && available.y != 0f) {
+                            childOverflowed = true
                             val delta = (-available.y / pageHeightPx) * SWIPE_SENSITIVITY
                             val target = (offset.value + delta).coerceIn(0f, maxIndex.toFloat())
                             scope.launch { offset.snapTo(target) }
                             return available
                         }
+                        childOverflowed = false
                         return Offset.Zero
+                    }
+
+                    override suspend fun onPreFling(available: Velocity): Velocity {
+                        if (!childOverflowed) return Velocity.Zero
+                        childOverflowed = false
+
+                        val current = offset.value
+                        val v = available.y
+                        val predicted = current - (v / pageHeightPx) * 0.15f * SWIPE_SENSITIVITY
+                        val target = predicted.roundToInt().coerceIn(0, maxIndex).toFloat()
+                        if (target != current) {
+                            offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
+                        }
+                        return available
                     }
 
                     override suspend fun onPostFling(
@@ -423,9 +441,7 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                         available: Velocity,
                     ): Velocity {
                         val current = offset.value
-                        val v = -available.y
-                        val predicted = current - (v / pageHeightPx) * 0.15f * SWIPE_SENSITIVITY
-                        val target = predicted.roundToInt().coerceIn(0, maxIndex).toFloat()
+                        val target = current.roundToInt().coerceIn(0, maxIndex).toFloat()
                         if (target != current) {
                             offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
                         }

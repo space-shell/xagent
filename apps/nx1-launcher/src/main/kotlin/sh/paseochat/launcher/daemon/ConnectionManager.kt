@@ -193,6 +193,10 @@ class ConnectionManager(
         )
     }
 
+    fun respondToQuestion(agentId: String, permissionRequestId: String, answers: Map<String, String>) {
+        clientForAgent(agentId)?.respondToQuestion(agentId, permissionRequestId, answers)
+    }
+
     fun setAgentMode(agentId: String, modeId: String) {
         clientForAgent(agentId)?.setAgentMode(agentId, modeId)
     }

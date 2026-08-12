@@ -48,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -70,8 +71,8 @@ import kotlin.math.roundToInt
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
-import sh.paseochat.launcher.model.PermOption
 import sh.paseochat.launcher.model.PendingPermission
+import sh.paseochat.launcher.model.PendingQuestion
 import sh.paseochat.launcher.ui.rememberHaptics
 import sh.paseochat.launcher.ui.theme.DoneContainerDark
 import sh.paseochat.launcher.ui.theme.DoneContainerLight
@@ -97,9 +98,9 @@ fun AgentCard(
     onApprove: (String) -> Unit = {},
     onDeny: (String) -> Unit = {},
     onApproveAlways: ((String) -> Unit)? = null,
-    onSelectOption: (String, PermOption) -> Unit = { _, _ -> },
+    onAnswerQuestion: (String, Map<String, String>) -> Unit = { _, _ -> },
     onArchive: () -> Unit = {},
-    onConfirmTranscript: (String?, String) -> Unit = { _, _ -> },
+    onConfirmTranscript: () -> Unit = {},
     onCancelTranscript: () -> Unit = {},
     onOpenInPaseo: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -130,6 +131,10 @@ fun AgentCard(
         if (permIndex >= perms.size) permIndex = 0
     }
     val currentPerm = perms.getOrNull(permIndex.coerceIn(0, maxOf(0, perms.lastIndex)))
+    val isQuestionPerm = currentPerm?.kind == "question"
+    var qIdx by remember(session.id, currentPerm?.id) { mutableIntStateOf(0) }
+    val questionAnswers = remember(session.id, currentPerm?.id) { mutableStateMapOf<String, String>() }
+    val currentQuestion = currentPerm?.questions?.getOrNull(qIdx)
 
     Box(
         modifier
@@ -225,7 +230,114 @@ fun AgentCard(
                         )
                         Spacer(Modifier.height(12.dp))
 
-                        if (currentPerm != null) {
+                        if (isQuestionPerm && currentQuestion != null) {
+                            if (currentPerm!!.questions.size > 1) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(meta.onContainerColor.copy(alpha = 0.12f))
+                                            .then(
+                                                if (qIdx > 0) Modifier.clickable { haptics.tick(); qIdx-- }
+                                                else Modifier,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.KeyboardArrowLeft,
+                                            contentDescription = "Previous question",
+                                            tint = meta.onContainerColor.copy(alpha = if (qIdx > 0) 0.9f else 0.3f),
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                    Text(
+                                        "${qIdx + 1} / ${currentPerm.questions.size}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = meta.onContainerColor.copy(alpha = 0.7f),
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(meta.onContainerColor.copy(alpha = 0.12f))
+                                            .then(
+                                                if (qIdx < currentPerm.questions.size - 1) Modifier.clickable { haptics.tick(); qIdx++ }
+                                                else Modifier,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.KeyboardArrowRight,
+                                            contentDescription = "Next question",
+                                            tint = meta.onContainerColor.copy(alpha = if (qIdx < currentPerm.questions.size - 1) 0.9f else 0.3f),
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                currentQuestion.question,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = meta.onContainerColor,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 5,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Column(
+                                modifier = Modifier.verticalScroll(rememberScrollState()),
+                            ) {
+                                currentQuestion.options.forEach { choice ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 6.dp)
+                                            .height(40.dp)
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(meta.onContainerColor.copy(alpha = 0.10f))
+                                            .clickable {
+                                                haptics.confirm()
+                                                questionAnswers[currentQuestion.header] = choice.label
+                                                if (qIdx < currentPerm.questions.size - 1) {
+                                                    qIdx++
+                                                } else {
+                                                    onAnswerQuestion(currentPerm.id, questionAnswers.toMap())
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(
+                                                choice.label,
+                                                color = meta.onContainerColor,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            choice.description?.let { d ->
+                                                if (d != choice.label) {
+                                                    Text(
+                                                        d,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = meta.onContainerColor.copy(alpha = 0.6f),
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (currentPerm != null) {
                             if (perms.size > 1) {
                                 Row(
                                     modifier = Modifier
@@ -320,28 +432,17 @@ fun AgentCard(
                             ConfirmCancelBar(
                                 onConfirm = {
                                     haptics.confirm()
-                                    onConfirmTranscript(currentPerm?.id, pendingTranscript)
+                                    onConfirmTranscript()
                                 },
                                 onCancel = { haptics.reject(); onCancelTranscript() },
                             )
-                        } else if (currentPerm != null && currentPerm.options.isNotEmpty()) {
-                            QuestionBar(
-                                options = currentPerm.options,
-                                onSelectOption = { opt ->
-                                    haptics.confirm()
-                                    onSelectOption(currentPerm.id, opt)
-                                },
-                                listening = listening,
-                                onMicDown = onMicDown,
-                                onMicUp = onMicUp,
-                            )
-                        } else if (currentPerm != null) {
+                        } else if (currentPerm != null && !isQuestionPerm) {
                             ApprovalBar(
                                 onApprove = { haptics.confirm(); onApprove(currentPerm.id) },
                                 onDeny = { haptics.reject(); onDeny(currentPerm.id) },
                                 onApproveAlways = onApproveAlways?.let { fn -> { fn(currentPerm.id) } },
                             )
-                        } else {
+                        } else if (currentPerm == null) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End,
@@ -404,60 +505,6 @@ private fun ApprovalBar(
         ) {
             Text("Deny", color = cs.onError, fontWeight = FontWeight.SemiBold)
         }
-    }
-}
-
-@Composable
-private fun QuestionBar(
-    options: List<PermOption>,
-    onSelectOption: (PermOption) -> Unit,
-    listening: Boolean,
-    onMicDown: () -> Unit,
-    onMicUp: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val cs = MaterialTheme.colorScheme
-    val scrollState = rememberScrollState()
-
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(max = 200.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Bottom,
-    ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(scrollState),
-        ) {
-            options.forEach { option ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 6.dp)
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(if (option.allow) cs.primary else cs.error)
-                        .clickable { onSelectOption(option) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        option.label,
-                        color = if (option.allow) cs.onPrimary else cs.onError,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    )
-                }
-            }
-        }
-        MicButton(
-            listening = listening,
-            onMicDown = onMicDown,
-            onMicUp = onMicUp,
-        )
     }
 }
 

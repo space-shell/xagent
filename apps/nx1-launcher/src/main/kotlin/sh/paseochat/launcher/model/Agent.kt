@@ -9,12 +9,25 @@ data class PermOption(
     val allow: Boolean,
 )
 
+data class QuestionChoice(
+    val label: String,
+    val description: String?,
+)
+
+data class PendingQuestion(
+    val question: String,
+    val header: String,
+    val options: List<QuestionChoice>,
+    val allowOther: Boolean,
+)
+
 data class PendingPermission(
     val id: String,
     val kind: String,
     val title: String?,
     val description: String?,
     val options: List<PermOption>,
+    val questions: List<PendingQuestion> = emptyList(),
 )
 
 data class AgentSession(

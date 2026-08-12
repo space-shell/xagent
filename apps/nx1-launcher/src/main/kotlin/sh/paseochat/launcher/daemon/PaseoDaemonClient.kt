@@ -41,6 +41,8 @@ import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
 import sh.paseochat.launcher.model.CreateAgentResult
 import sh.paseochat.launcher.model.PendingPermission
+import sh.paseochat.launcher.model.PendingQuestion
+import sh.paseochat.launcher.model.QuestionChoice
 import sh.paseochat.launcher.model.PermOption
 import sh.paseochat.launcher.model.ProviderModelOption
 import sh.paseochat.launcher.model.WorkspaceOption
@@ -243,6 +245,30 @@ class PaseoDaemonClient(
         }
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "respondToPermissionWithAction agentId=$agentId reqId=$permissionRequestId actionId=$selectedActionId custom=${customAnswer != null}")
+        sendOrEncrypt(json)
+    }
+
+    fun respondToQuestion(agentId: String, permissionRequestId: String, answers: Map<String, String>) {
+        val msg = buildJsonObject {
+            put("type", "session")
+            putJsonObject("message") {
+                put("type", "agent_permission_response")
+                put("agentId", agentId)
+                put("requestId", permissionRequestId)
+                putJsonObject("response") {
+                    put("behavior", "allow")
+                    putJsonObject("updatedInput") {
+                        putJsonObject("answers") {
+                            answers.forEach { (header, answer) ->
+                                put(header, answer)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
+        Log.d(TAG, "respondToQuestion agentId=$agentId reqId=$permissionRequestId answers=${answers.size}")
         sendOrEncrypt(json)
     }
 
@@ -539,6 +565,8 @@ class PaseoDaemonClient(
             ?: request["name"]?.jsonPrimitive?.contentOrNull
             ?: request["description"]?.jsonPrimitive?.contentOrNull
         val desc = request["description"]?.jsonPrimitive?.contentOrNull
+
+        val parsedQuestions = parseQuestions(request)
         val actions = request["actions"] as? JsonArray
         val options = actions?.mapNotNull { action ->
             val actionObj = action.jsonObject
@@ -548,9 +576,9 @@ class PaseoDaemonClient(
             PermOption(id = actionId, label = actionLabel, allow = actionBehavior == "allow")
         } ?: emptyList()
 
-        Log.d(TAG, "agent_permission_request agentId=$agentId reqId=$reqId kind=$kind title=${title?.take(60)} options=${options.size} raw=${message.toString().take(300)}")
+        Log.d(TAG, "agent_permission_request agentId=$agentId reqId=$reqId kind=$kind title=${title?.take(60)} options=${options.size} questions=${parsedQuestions.size} raw=${message.toString().take(300)}")
 
-        val perm = PendingPermission(id = reqId, kind = kind, title = title, description = desc, options = options)
+        val perm = PendingPermission(id = reqId, kind = kind, title = title, description = desc, options = options, questions = parsedQuestions)
         val current = _agents.value
         val idx = current.indexOfFirst { it.id == agentId }
         if (idx >= 0) {
@@ -704,8 +732,13 @@ class PaseoDaemonClient(
                     if (existing != null && existing.pendingPermissions.isNotEmpty()) {
                         val mergedPerms = session.pendingPermissions.map { newPerm ->
                             val oldPerm = existing.pendingPermissions.find { it.id == newPerm.id }
-                            if (newPerm.options.isEmpty() && oldPerm?.options?.isNotEmpty() == true) {
-                                newPerm.copy(options = oldPerm.options)
+                            val needOptions = newPerm.options.isEmpty() && oldPerm?.options?.isNotEmpty() == true
+                            val needQuestions = newPerm.questions.isEmpty() && oldPerm?.questions?.isNotEmpty() == true
+                            if (needOptions || needQuestions) {
+                                newPerm.copy(
+                                    options = if (needOptions) oldPerm!!.options else newPerm.options,
+                                    questions = if (needQuestions) oldPerm!!.questions else newPerm.questions,
+                                )
                             } else {
                                 newPerm
                             }
@@ -760,6 +793,28 @@ class PaseoDaemonClient(
         }
     }
 
+    private fun parseQuestions(request: JsonObject): List<PendingQuestion> {
+        val input = request["input"]?.jsonObject ?: return emptyList()
+        val questionsArr = input["questions"] as? JsonArray ?: return emptyList()
+        return questionsArr.mapNotNull { qElement ->
+            val q = qElement.jsonObject
+            val questionText = q["question"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val header = q["header"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val qOptions = (q["options"] as? JsonArray)?.mapNotNull { optElement ->
+                val opt = optElement.jsonObject
+                val label = opt["label"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val desc = opt["description"]?.jsonPrimitive?.contentOrNull
+                QuestionChoice(label = label, description = desc)
+            } ?: emptyList()
+            PendingQuestion(
+                question = questionText,
+                header = header,
+                options = qOptions,
+                allowOther = q["allowOther"]?.jsonPrimitive?.contentOrNull == "true",
+            )
+        }
+    }
+
     private fun parseAgentSnapshot(agent: JsonObject): AgentSession? {
         val id = agent["id"]?.jsonPrimitive?.contentOrNull ?: return null
         val cwd = agent["cwd"]?.jsonPrimitive?.contentOrNull ?: ""
@@ -795,7 +850,7 @@ class PaseoDaemonClient(
                 val actionBehavior = actionObj["behavior"]?.jsonPrimitive?.contentOrNull ?: "allow"
                 PermOption(id = actionId, label = actionLabel, allow = actionBehavior == "allow")
             } ?: emptyList()
-            PendingPermission(id = permId, kind = permKind, title = permTitle, description = permDesc, options = options)
+            PendingPermission(id = permId, kind = permKind, title = permTitle, description = permDesc, options = options, questions = parseQuestions(perm))
         } ?: emptyList()
 
         val hasPendingPerms = permissions.isNotEmpty()

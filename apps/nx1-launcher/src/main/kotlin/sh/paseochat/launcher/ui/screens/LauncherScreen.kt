@@ -514,24 +514,14 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                     onDeny = { permId ->
                                         connectionManager.respondToPermission(session.id, permId, allow = false)
                                     },
-                                    onSelectOption = { permId, opt ->
-                                        connectionManager.respondToPermissionWithAction(
-                                            session.id, permId,
-                                            selectedActionId = opt.id,
-                                        )
+                                    onAnswerQuestion = { permId, answers ->
+                                        connectionManager.respondToQuestion(session.id, permId, answers)
                                     },
                                     onArchive = {
                                         connectionManager.archiveAgent(session.id)
                                     },
-                                    onConfirmTranscript = { permId, text ->
-                                        if (permId != null) {
-                                            connectionManager.respondToPermissionWithAction(
-                                                session.id, permId,
-                                                customAnswer = text,
-                                            )
-                                        } else {
-                                            connectionManager.sendAgentMessage(session.id, text)
-                                        }
+                                    onConfirmTranscript = {
+                                        connectionManager.sendAgentMessage(session.id, pendingTranscript ?: "")
                                         pendingTranscript = null
                                         pendingSessionId = null
                                     },

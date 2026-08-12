@@ -315,7 +315,7 @@ class PaseoDaemonClient(
         provider: String,
         modelId: String?,
         initialPrompt: String,
-        modeId: String = "auto",
+        modeId: String = "plan",
     ): CreateAgentResult {
         val requestId = UUID.randomUUID().toString()
         val deferred = kotlinx.coroutines.CompletableDeferred<CreateAgentResult>()

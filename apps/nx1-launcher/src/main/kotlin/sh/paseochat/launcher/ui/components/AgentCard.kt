@@ -216,16 +216,16 @@ fun AgentCard(
                         val workspaceName = session.cwd.substringAfterLast('/').ifBlank { "?" }
                         val modelName = session.model.substringAfterLast('/')
                         Text(
-                            "${serverName.ifBlank { "?" }}/$workspaceName/$modelName",
+                            "${serverName.ifBlank { "?" }} · $workspaceName · $modelName",
                             style = MaterialTheme.typography.labelSmall,
                             color = meta.onContainerColor.copy(alpha = 0.7f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Spacer(Modifier.height(12.dp))
-                        val isQuestion = session.state == AgentState.AwaitingInput &&
-                            session.permissionKind == "question"
-                        if (isQuestion) {
+                        val hasOptions = session.state == AgentState.AwaitingInput &&
+                            session.permissionOptions.isNotEmpty()
+                        if (hasOptions) {
                             Text(
                                 session.permissionTitle ?: session.summary,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -257,7 +257,7 @@ fun AgentCard(
                                 onConfirm = { haptics.confirm(); onConfirmTranscript() },
                                 onCancel = { haptics.reject(); onCancelTranscript() },
                             )
-                        } else if (isQuestion) {
+                        } else if (hasOptions) {
                             QuestionBar(
                                 options = session.permissionOptions,
                                 onSelectOption = { opt ->

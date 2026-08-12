@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -42,7 +41,6 @@ fun SettingsCard(
     keepAlive: Boolean,
     onKeepAliveChange: (Boolean) -> Unit,
     onAddConnection: () -> Unit,
-    onOpenLauncher: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -96,7 +94,7 @@ fun SettingsCard(
             )
             Spacer(Modifier.height(6.dp))
             SegmentedToggle(
-                options = listOf("Left" to SidebarSide.Left, "Right" to SidebarSide.Right),
+                options = listOf("Left" to SidebarSide.Left, "Off" to SidebarSide.Off, "Right" to SidebarSide.Right),
                 selected = sidebarSide,
                 onSelect = onSidebarSideChange,
             )
@@ -118,8 +116,6 @@ fun SettingsCard(
             Spacer(Modifier.height(24.dp))
 
             AddConnectionButton(onClick = onAddConnection)
-            Spacer(Modifier.height(12.dp))
-            LauncherButton(onOpenLauncher = onOpenLauncher)
         }
     }
 }
@@ -182,35 +178,6 @@ private fun AddConnectionButton(onClick: () -> Unit) {
             Text(
                 "Add Connection",
                 color = cs.onPrimary,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
-@Composable
-private fun LauncherButton(onOpenLauncher: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(40.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(cs.surfaceVariant)
-            .clickable(onClick = onOpenLauncher),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Outlined.Apps,
-                contentDescription = null,
-                tint = cs.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.size(8.dp))
-            Text(
-                "Switch launcher",
-                color = cs.onSurfaceVariant,
                 fontWeight = FontWeight.SemiBold,
             )
         }

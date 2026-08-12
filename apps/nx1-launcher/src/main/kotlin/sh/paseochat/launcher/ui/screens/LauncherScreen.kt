@@ -93,6 +93,8 @@ import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
 import sh.paseochat.launcher.model.ConnectionProfile
 import sh.paseochat.launcher.model.ConnectionType
+import sh.paseochat.launcher.model.CreateAgentResult
+import sh.paseochat.launcher.model.SessionShortcut
 import sh.paseochat.launcher.model.SidebarSide
 import sh.paseochat.launcher.model.parseOfferFromUrl
 import sh.paseochat.launcher.service.PaseoConnectionService
@@ -178,6 +180,7 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
 
     val prefs = remember { context.getSharedPreferences("daemon", Context.MODE_PRIVATE) }
     var profiles by remember { mutableStateOf(loadProfiles(prefs)) }
+    var sessionShortcuts by remember { mutableStateOf(loadShortcuts(prefs)) }
     var hideStatusBar by remember { mutableStateOf(prefs.getBoolean("hide_status_bar", false)) }
     var keepAlive by remember { mutableStateOf(prefs.getBoolean("keep_alive_in_background", true)) }
     var keepAlivePrompted by remember { mutableStateOf(prefs.getBoolean("keep_alive_prompted", false)) }
@@ -214,14 +217,21 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
     }
     var sidebarSide by remember {
         mutableStateOf(
-            if (prefs.getString("sidebar_side", "right") == "left") SidebarSide.Left
-            else SidebarSide.Right,
+            when (prefs.getString("sidebar_side", "right")) {
+                "left" -> SidebarSide.Left
+                "off" -> SidebarSide.Off
+                else -> SidebarSide.Right
+            },
         )
     }
     LaunchedEffect(sidebarSide) {
         prefs.edit().putString(
             "sidebar_side",
-            if (sidebarSide == SidebarSide.Left) "left" else "right",
+            when (sidebarSide) {
+                SidebarSide.Left -> "left"
+                SidebarSide.Off -> "off"
+                SidebarSide.Right -> "right"
+            },
         ).apply()
     }
 
@@ -332,11 +342,14 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
 
     val workspacesByProfile by connectionManager.workspaces.collectAsState()
     val providerModelsByProfile by connectionManager.providerModels.collectAsState()
+    val serverIds by connectionManager.serverIds.collectAsState()
     val lastCreatedAgentId by connectionManager.lastCreatedAgentId.collectAsState()
     val wizardError by connectionManager.wizardError.collectAsState()
 
     var homeResetSignal by remember { mutableIntStateOf(0) }
     var homeWizardVisible by remember { mutableStateOf(false) }
+    var createdAgentSignal by remember { mutableIntStateOf(0) }
+    var createdAgentInfo by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     LaunchedEffect(currentPage) {
         val homeVisible = currentPage == 0 && pages.firstOrNull() is DeckPage.Home
@@ -349,13 +362,6 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
     LaunchedEffect(lastCreatedAgentId) {
         val id = lastCreatedAgentId ?: return@LaunchedEffect
         connectionManager.consumeLastCreatedAgentId()
-        val idx = pages.indexOfFirst { it is DeckPage.Agent && it.session.id == id }
-        if (idx >= 0) {
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            scope.launch {
-                offset.animateTo(idx.toFloat(), spring(dampingRatio = Spring.DampingRatioLowBouncy))
-            }
-        }
     }
 
     LaunchedEffect(attentionAgentId, pages) {
@@ -433,10 +439,16 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
             ) {
                     val cardPaddingStart: Dp
                     val cardPaddingEnd: Dp
-                    if (sidebarSide == SidebarSide.Left) {
-                        cardPaddingStart = 40.dp; cardPaddingEnd = 16.dp
-                    } else {
-                        cardPaddingStart = 16.dp; cardPaddingEnd = 40.dp
+                    when (sidebarSide) {
+                        SidebarSide.Left -> {
+                            cardPaddingStart = 40.dp; cardPaddingEnd = 16.dp
+                        }
+                        SidebarSide.Right -> {
+                            cardPaddingStart = 16.dp; cardPaddingEnd = 40.dp
+                        }
+                        SidebarSide.Off -> {
+                            cardPaddingStart = 16.dp; cardPaddingEnd = 16.dp
+                        }
                     }
 
                     pages.forEachIndexed { pageIndex, page ->
@@ -568,9 +580,30 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                     workspacesByProfile = workspacesByProfile,
                                     providerModelsByProfile = providerModelsByProfile,
                                     serverNames = serverNames,
+                                    shortcuts = sessionShortcuts,
                                     shPaseoInstalled = shPaseoInstalled,
                                     sidebarSide = sidebarSide,
                                     resetSignal = homeResetSignal,
+                                    createdAgentSignal = createdAgentSignal,
+                                    onOpenCreatedAgent = {
+                                        createdAgentInfo?.let { (agentId, sid) ->
+                                            if (sid.isNotBlank()) {
+                                                try {
+                                                    val uri = Uri.parse("paseo://h/$sid/agent/$agentId")
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                                } catch (e: ActivityNotFoundException) {
+                                                    scope.launch {
+                                                        snackbarHostState.showSnackbar("Paseo app not installed")
+                                                    }
+                                                } catch (e: Throwable) {
+                                                    Log.w("LauncherScreen", "deep link failed", e)
+                                                    scope.launch {
+                                                        snackbarHostState.showSnackbar("Paseo failed to open: ${e.message ?: e.javaClass.simpleName}")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
                                     listening = listeningId == HOME_LISTENING_ID,
                                     pendingTranscript = if (pendingSessionId == HOME_LISTENING_ID) pendingTranscript else null,
                                     wizardError = wizardError,
@@ -593,8 +626,10 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                     },
                                     onClearError = { connectionManager.clearWizardError() },
                                     onCreateAgent = { pid, wid, cwd, prov, mid, prompt ->
+                                        pendingTranscript = null
+                                        pendingSessionId = null
                                         scope.launch {
-                                            connectionManager.createAgent(
+                                            val result = connectionManager.createAgent(
                                                 profileId = pid,
                                                 workspaceId = wid,
                                                 cwd = cwd,
@@ -602,6 +637,36 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                                 modelId = mid,
                                                 initialPrompt = prompt,
                                             )
+                                            if (result is CreateAgentResult.Success) {
+                                                createdAgentInfo = result.agentId to (serverIds[pid] ?: "")
+                                                createdAgentSignal++
+                                                val serverLabel = serverNames[pid]?.ifBlank { null }
+                                                    ?: profiles.firstOrNull { it.id == pid }?.label?.ifBlank { null }
+                                                    ?: pid
+                                                val wsLabel = workspacesByProfile[pid]
+                                                    ?.firstOrNull { it.id == wid }?.label ?: wid
+                                                val modLabel = providerModelsByProfile[pid]
+                                                    ?.firstOrNull { it.provider == prov && it.modelId == mid }?.label
+                                                    ?: "$prov/${mid ?: ""}"
+                                                val shortcut = SessionShortcut(
+                                                    profileId = pid,
+                                                    workspaceId = wid,
+                                                    cwd = cwd,
+                                                    provider = prov,
+                                                    modelId = mid,
+                                                    serverLabel = serverLabel,
+                                                    workspaceLabel = wsLabel,
+                                                    modelLabel = modLabel,
+                                                )
+                                                val updated = listOf(shortcut) + sessionShortcuts.filterNot {
+                                                    it.profileId == pid &&
+                                                        it.workspaceId == wid &&
+                                                        it.provider == prov &&
+                                                        it.modelId == mid
+                                                }.take(2)
+                                                sessionShortcuts = updated
+                                                saveShortcuts(prefs, updated)
+                                            }
                                         }
                                     },
                                     onLaunchPaseo = launchPaseo,
@@ -610,6 +675,24 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                             }
                             is DeckPage.Apps -> {
                                 AppsCard(
+                                    onOpenLauncher = {
+                                        val pm = context.packageManager
+                                        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                                        val launchers = pm.queryIntentActivities(homeIntent, 0)
+                                            .filter { it.activityInfo.packageName != context.packageName }
+                                        val target = launchers.firstOrNull()
+                                        if (target != null) {
+                                            val intent = Intent(Intent.ACTION_MAIN).apply {
+                                                addCategory(Intent.CATEGORY_HOME)
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                component = ComponentName(
+                                                    target.activityInfo.packageName,
+                                                    target.activityInfo.name,
+                                                )
+                                            }
+                                            context.startActivity(intent)
+                                        }
+                                    },
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
@@ -630,24 +713,6 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                         val newIdx = (sessions.size + 2 + profiles.size - 1).coerceAtLeast(0)
                                         scope.launch {
                                             offset.animateTo(newIdx.toFloat(), spring(dampingRatio = Spring.DampingRatioLowBouncy))
-                                        }
-                                    },
-                                    onOpenLauncher = {
-                                        val pm = context.packageManager
-                                        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                                        val launchers = pm.queryIntentActivities(homeIntent, 0)
-                                            .filter { it.activityInfo.packageName != context.packageName }
-                                        val target = launchers.firstOrNull()
-                                        if (target != null) {
-                                            val intent = Intent(Intent.ACTION_MAIN).apply {
-                                                addCategory(Intent.CATEGORY_HOME)
-                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                                component = ComponentName(
-                                                    target.activityInfo.packageName,
-                                                    target.activityInfo.name,
-                                                )
-                                            }
-                                            context.startActivity(intent)
                                         }
                                     },
                                     modifier = Modifier.fillMaxSize(),
@@ -701,22 +766,24 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                 }
             }
 
-            StatusRail(
-                pages = pages,
-                currentIndex = currentPage,
-                onTap = { idx ->
-                    scope.launch {
-                        offset.animateTo(idx.toFloat().coerceIn(0f, maxIndex.toFloat()), spring(dampingRatio = Spring.DampingRatioLowBouncy))
-                    }
-                },
-                modifier = Modifier
-                    .align(if (sidebarSide == SidebarSide.Left) Alignment.CenterStart else Alignment.CenterEnd)
-                    .padding(
-                        start = if (sidebarSide == SidebarSide.Left) 4.dp else 0.dp,
-                        end = if (sidebarSide == SidebarSide.Right) 4.dp else 0.dp,
-                    )
-                    .fillMaxHeight(),
-            )
+            if (sidebarSide != SidebarSide.Off) {
+                StatusRail(
+                    pages = pages,
+                    currentIndex = currentPage,
+                    onTap = { idx ->
+                        scope.launch {
+                            offset.animateTo(idx.toFloat().coerceIn(0f, maxIndex.toFloat()), spring(dampingRatio = Spring.DampingRatioLowBouncy))
+                        }
+                    },
+                    modifier = Modifier
+                        .align(if (sidebarSide == SidebarSide.Left) Alignment.CenterStart else Alignment.CenterEnd)
+                        .padding(
+                            start = if (sidebarSide == SidebarSide.Left) 4.dp else 0.dp,
+                            end = if (sidebarSide == SidebarSide.Right) 4.dp else 0.dp,
+                        )
+                        .fillMaxHeight(),
+                )
+            }
         }
     }
 }
@@ -733,6 +800,20 @@ private fun loadProfiles(prefs: SharedPreferences): List<ConnectionProfile> {
 private fun saveProfiles(prefs: SharedPreferences, profiles: List<ConnectionProfile>) {
     val json = DaemonJson.encodeToString(ListSerializer(ConnectionProfile.serializer()), profiles)
     prefs.edit().putString("connection_profiles", json).apply()
+}
+
+private fun loadShortcuts(prefs: SharedPreferences): List<SessionShortcut> {
+    val json = prefs.getString("session_shortcuts", null) ?: return emptyList()
+    return try {
+        DaemonJson.decodeFromString(ListSerializer(SessionShortcut.serializer()), json)
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+private fun saveShortcuts(prefs: SharedPreferences, shortcuts: List<SessionShortcut>) {
+    val json = DaemonJson.encodeToString(ListSerializer(SessionShortcut.serializer()), shortcuts)
+    prefs.edit().putString("session_shortcuts", json).apply()
 }
 
 @Composable

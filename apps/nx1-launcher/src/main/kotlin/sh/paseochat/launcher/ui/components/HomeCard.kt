@@ -22,10 +22,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -50,12 +53,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import sh.paseochat.launcher.daemon.models.ConnectionState
 import sh.paseochat.launcher.model.ConnectionProfile
 import sh.paseochat.launcher.model.ProviderModelOption
+import sh.paseochat.launcher.model.SessionShortcut
 import sh.paseochat.launcher.model.SidebarSide
 import sh.paseochat.launcher.model.WorkspaceOption
 
@@ -64,6 +69,7 @@ private const val STEP_SERVER = 1
 private const val STEP_PROJECT = 2
 private const val STEP_MODEL = 3
 private const val STEP_PROMPT = 4
+private const val STEP_CREATED = 5
 
 private val RestartRed = Color(0xFFE57373)
 
@@ -74,9 +80,11 @@ fun HomeCard(
     workspacesByProfile: Map<String, List<WorkspaceOption>>,
     providerModelsByProfile: Map<String, List<ProviderModelOption>>,
     serverNames: Map<String, String>,
+    shortcuts: List<SessionShortcut>,
     shPaseoInstalled: Boolean,
     sidebarSide: SidebarSide,
     resetSignal: Int,
+    createdAgentSignal: Int,
     listening: Boolean,
     pendingTranscript: String?,
     wizardError: String?,
@@ -84,6 +92,7 @@ fun HomeCard(
     onMicUp: () -> Unit,
     onCancelTranscript: () -> Unit,
     onClearError: () -> Unit,
+    onOpenCreatedAgent: () -> Unit,
     onCreateAgent: (profileId: String, workspaceId: String, cwd: String, provider: String, modelId: String?, prompt: String) -> Unit,
     onLaunchPaseo: () -> Unit,
     modifier: Modifier = Modifier,
@@ -125,6 +134,10 @@ fun HomeCard(
 
     LaunchedEffect(resetSignal) {
         restartWizard()
+    }
+
+    LaunchedEffect(createdAgentSignal) {
+        if (createdAgentSignal > 0) step = STEP_CREATED
     }
 
     val connectedProfiles = profiles.filter {
@@ -194,8 +207,26 @@ fun HomeCard(
 
                 when (step) {
                     STEP_WELCOME -> WelcomeStep(
+                        shortcuts = shortcuts,
+                        connectedProfileIds = connectedProfiles.map { it.id }.toSet(),
                         shPaseoInstalled = shPaseoInstalled,
                         sidebarSide = sidebarSide,
+                        onShortcutTap = { sc ->
+                            selectedProfileId = sc.profileId
+                            selectedWorkspace = sc.profileId to WorkspaceOption(
+                                id = sc.workspaceId,
+                                projectId = "",
+                                label = sc.workspaceLabel,
+                                rootPath = sc.cwd,
+                            )
+                            selectedModel = ProviderModelOption(
+                                provider = sc.provider,
+                                modelId = sc.modelId ?: "",
+                                label = sc.modelLabel,
+                            )
+                            serverIndex = connectedProfiles.indexOfFirst { it.id == sc.profileId }.coerceAtLeast(0)
+                            step = STEP_PROMPT
+                        },
                         onPlus = {
                             if (connectedProfiles.isEmpty()) {
                                 localError = "No connected servers — add one in Settings"
@@ -289,7 +320,11 @@ fun HomeCard(
                         listening = listening,
                         pendingTranscript = pendingTranscript,
                         sidebarSide = sidebarSide,
-                        profileLabel = connectedProfiles.firstOrNull { it.id == selectedProfileId }?.label ?: "",
+                        profileLabel = selectedProfileId?.let { id ->
+                            serverNames[id]?.ifBlank { null }
+                                ?: connectedProfiles.firstOrNull { it.id == id }?.label?.ifBlank { null }
+                                ?: ""
+                        } ?: "",
                         workspaceLabel = selectedWorkspace?.second?.label ?: "",
                         modelLabel = selectedModel?.label ?: "",
                         onMicDown = onMicDown,
@@ -311,6 +346,12 @@ fun HomeCard(
                         },
                         onCancel = onCancelTranscript,
                     )
+
+                    STEP_CREATED -> CreatedStep(
+                        sidebarSide = sidebarSide,
+                        onOpenInPaseo = onOpenCreatedAgent,
+                        onReset = { restartWizard() },
+                    )
                 }
             }
         }
@@ -319,26 +360,66 @@ fun HomeCard(
 
 @Composable
 private fun WelcomeStep(
+    shortcuts: List<SessionShortcut>,
+    connectedProfileIds: Set<String>,
     shPaseoInstalled: Boolean,
     sidebarSide: SidebarSide,
+    onShortcutTap: (SessionShortcut) -> Unit,
     onPlus: () -> Unit,
     onLaunchPaseo: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val plusAlign = if (sidebarSide == SidebarSide.Right) Alignment.BottomEnd else Alignment.BottomStart
-    val paseoAlign = if (sidebarSide == SidebarSide.Right) Alignment.BottomStart else Alignment.BottomEnd
+    val plusAlign = if (sidebarSide != SidebarSide.Left) Alignment.BottomEnd else Alignment.BottomStart
+    val paseoAlign = if (sidebarSide != SidebarSide.Left) Alignment.BottomStart else Alignment.BottomEnd
 
     Box(Modifier.fillMaxSize()) {
-        CornerButton(
-            modifier = Modifier.align(plusAlign),
-            containerColor = cs.primary,
-            onClick = onPlus,
+        if (shortcuts.isNotEmpty()) {
+            Column(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                shortcuts.forEach { sc ->
+                    val enabled = sc.profileId in connectedProfileIds
+                    val chipColor = if (enabled) cs.surfaceVariant else cs.surfaceVariant.copy(alpha = 0.4f)
+                    val textColor = if (enabled) cs.onSurfaceVariant else cs.onSurfaceVariant.copy(alpha = 0.4f)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(chipColor)
+                            .let { m -> if (enabled) m.clickable { onShortcutTap(sc) } else m }
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "${sc.serverLabel} · ${sc.workspaceLabel} · ${sc.modelLabel}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = textColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .align(plusAlign)
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(cs.primary)
+                .clickable(onClick = onPlus),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
                 Icons.Outlined.Add,
                 contentDescription = "New chat",
                 tint = cs.onPrimary,
-                modifier = Modifier.size(28.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
 
@@ -355,6 +436,69 @@ private fun WelcomeStep(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun CreatedStep(
+    sidebarSide: SidebarSide,
+    onOpenInPaseo: () -> Unit,
+    onReset: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val openAlign = if (sidebarSide != SidebarSide.Left) Alignment.BottomEnd else Alignment.BottomStart
+    val resetAlign = if (sidebarSide != SidebarSide.Left) Alignment.BottomStart else Alignment.BottomEnd
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Outlined.Check,
+                contentDescription = null,
+                tint = cs.primary,
+                modifier = Modifier.size(40.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Session Created",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = cs.onSurface,
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .align(openAlign)
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(cs.primary)
+                .clickable(onClick = onOpenInPaseo),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.AutoMirrored.Outlined.OpenInNew,
+                contentDescription = "Open in Paseo",
+                tint = cs.onPrimary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .align(resetAlign)
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(cs.surfaceVariant)
+                .clickable(onClick = onReset),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Outlined.RestartAlt,
+                contentDescription = "New chat",
+                tint = cs.onSurface,
+                modifier = Modifier.size(22.dp),
+            )
         }
     }
 }
@@ -430,7 +574,7 @@ private fun CyclingStep(
             }
         }
 
-        val leftIsPrev = sidebarSide == SidebarSide.Right
+        val leftIsPrev = sidebarSide != SidebarSide.Left
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -558,7 +702,7 @@ private fun PromptStep(
             Spacer(Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = if (sidebarSide == SidebarSide.Right) Arrangement.End else Arrangement.Start,
+                horizontalArrangement = Arrangement.End,
             ) {
                 MicButton(
                     listening = listening,

@@ -202,6 +202,7 @@ class ConnectionManager(
     }
 
     fun archiveAgent(agentId: String) {
+        _allAgents.value = _allAgents.value.filter { it.id != agentId }
         clientForAgent(agentId)?.archiveAgent(agentId)
     }
 

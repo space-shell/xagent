@@ -401,9 +401,40 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
 
             var velocityTracker by remember { mutableStateOf(VelocityTracker()) }
 
+            val deckScrollConnection = remember(pageHeightPx, maxIndex) {
+                object : NestedScrollConnection {
+                    override fun onPostScroll(
+                        consumed: Offset,
+                        available: Offset,
+                        source: NestedScrollSource,
+                    ): Offset {
+                        if (pageHeightPx > 0f && available.y != 0f) {
+                            val delta = (available.y / pageHeightPx) * SWIPE_SENSITIVITY
+                            val target = (offset.value + delta).coerceIn(0f, maxIndex.toFloat())
+                            scope.launch { offset.snapTo(target) }
+                            return available
+                        }
+                        return Offset.Zero
+                    }
+
+                    override suspend fun onPostFling(
+                        consumed: Velocity,
+                        available: Velocity,
+                    ): Velocity {
+                        val current = offset.value
+                        val target = current.roundToInt().coerceIn(0, maxIndex).toFloat()
+                        if (target != current) {
+                            offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
+                        }
+                        return available
+                    }
+                }
+            }
+
             Box(
                 Modifier
                     .fillMaxSize()
+                    .nestedScroll(deckScrollConnection)
                     .pointerInput(pages.size, pageHeightPx) {
                         detectVerticalDragGestures(
                             onDragStart = { velocityTracker = VelocityTracker() },

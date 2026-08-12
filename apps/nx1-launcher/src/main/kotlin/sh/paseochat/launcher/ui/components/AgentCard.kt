@@ -230,6 +230,12 @@ fun AgentCard(
                         )
                         Spacer(Modifier.height(12.dp))
 
+                        val contentScroll = rememberScrollState()
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .verticalScroll(contentScroll)
+                        ) {
                         if (isQuestionPerm && currentQuestion != null) {
                             if (currentPerm!!.questions.size > 1) {
                                 Row(
@@ -292,47 +298,38 @@ fun AgentCard(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Spacer(Modifier.height(10.dp))
-                            Column(
-                                modifier = Modifier.verticalScroll(rememberScrollState()),
-                            ) {
-                                currentQuestion.options.forEach { choice ->
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 6.dp)
-                                            .height(40.dp)
-                                            .clip(RoundedCornerShape(20.dp))
-                                            .background(meta.onContainerColor.copy(alpha = 0.10f))
-                                            .clickable {
-                                                haptics.confirm()
-                                                questionAnswers[currentQuestion.header] = choice.label
-                                                if (qIdx < currentPerm.questions.size - 1) {
-                                                    qIdx++
-                                                } else {
-                                                    onAnswerQuestion(currentPerm.id, questionAnswers.toMap())
-                                                }
-                                            },
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(
-                                                choice.label,
-                                                color = meta.onContainerColor,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            choice.description?.let { d ->
-                                                if (d != choice.label) {
-                                                    Text(
-                                                        d,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = meta.onContainerColor.copy(alpha = 0.6f),
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                    )
-                                                }
+                            currentQuestion.options.forEach { choice ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 6.dp)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(meta.onContainerColor.copy(alpha = 0.10f))
+                                        .clickable {
+                                            haptics.confirm()
+                                            questionAnswers[currentQuestion.header] = choice.label
+                                            if (qIdx < currentPerm.questions.size - 1) {
+                                                qIdx++
+                                            } else {
+                                                onAnswerQuestion(currentPerm.id, questionAnswers.toMap())
                                             }
+                                        },
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(
+                                        choice.label,
+                                        color = meta.onContainerColor,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                    )
+                                    choice.description?.let { d ->
+                                        if (d != choice.label) {
+                                            Text(
+                                                d,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = meta.onContainerColor.copy(alpha = 0.6f),
+                                                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp),
+                                            )
                                         }
                                     }
                                 }
@@ -427,7 +424,8 @@ fun AgentCard(
                         } else if (session.userInput.isNotBlank()) {
                             TranscriptBubble(session.userInput, meta.onContainerColor)
                         }
-                        Spacer(Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(8.dp))
                         if (pendingTranscript != null) {
                             ConfirmCancelBar(
                                 onConfirm = {

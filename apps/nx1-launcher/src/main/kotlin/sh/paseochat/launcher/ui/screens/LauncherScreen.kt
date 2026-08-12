@@ -409,7 +409,7 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                         source: NestedScrollSource,
                     ): Offset {
                         if (pageHeightPx > 0f && available.y != 0f) {
-                            val delta = (available.y / pageHeightPx) * SWIPE_SENSITIVITY
+                            val delta = (-available.y / pageHeightPx) * SWIPE_SENSITIVITY
                             val target = (offset.value + delta).coerceIn(0f, maxIndex.toFloat())
                             scope.launch { offset.snapTo(target) }
                             return available

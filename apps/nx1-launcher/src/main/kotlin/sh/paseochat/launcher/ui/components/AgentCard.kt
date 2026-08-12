@@ -324,20 +324,22 @@ fun AgentCard(
                                 },
                                 onCancel = { haptics.reject(); onCancelTranscript() },
                             )
-                        } else if (currentPerm != null) {
-                            PermissionBar(
+                        } else if (currentPerm != null && currentPerm.options.isNotEmpty()) {
+                            QuestionBar(
                                 options = currentPerm.options,
-                                permissionId = currentPerm.id,
                                 onSelectOption = { opt ->
                                     haptics.confirm()
                                     onSelectOption(currentPerm.id, opt)
                                 },
-                                onApprove = { haptics.confirm(); onApprove(currentPerm.id) },
-                                onDeny = { haptics.reject(); onDeny(currentPerm.id) },
-                                onApproveAlways = onApproveAlways?.let { fn -> { fn(currentPerm.id) } },
                                 listening = listening,
                                 onMicDown = onMicDown,
                                 onMicUp = onMicUp,
+                            )
+                        } else if (currentPerm != null) {
+                            ApprovalBar(
+                                onApprove = { haptics.confirm(); onApprove(currentPerm.id) },
+                                onDeny = { haptics.reject(); onDeny(currentPerm.id) },
+                                onApproveAlways = onApproveAlways?.let { fn -> { fn(currentPerm.id) } },
                             )
                         } else {
                             Row(
@@ -360,13 +362,55 @@ fun AgentCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PermissionBar(
-    options: List<PermOption>,
-    permissionId: String,
-    onSelectOption: (PermOption) -> Unit,
+private fun ApprovalBar(
     onApprove: () -> Unit,
     onDeny: () -> Unit,
-    onApproveAlways: (() -> Unit)?,
+    onApproveAlways: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(36.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(cs.primary)
+                .then(
+                    if (onApproveAlways != null) {
+                        Modifier.combinedClickable(
+                            onClick = onApprove,
+                            onLongClick = onApproveAlways,
+                        )
+                    } else {
+                        Modifier.clickable(onClick = onApprove)
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Allow", color = cs.onPrimary, fontWeight = FontWeight.SemiBold)
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(36.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(cs.error)
+                .clickable(onClick = onDeny),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Deny", color = cs.onError, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun QuestionBar(
+    options: List<PermOption>,
+    onSelectOption: (PermOption) -> Unit,
     listening: Boolean,
     onMicDown: () -> Unit,
     onMicUp: () -> Unit,
@@ -387,64 +431,25 @@ private fun PermissionBar(
                 .weight(1f)
                 .verticalScroll(scrollState),
         ) {
-            if (options.isNotEmpty()) {
-                options.forEach { option ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 6.dp)
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(if (option.allow) cs.primary else cs.error)
-                            .clickable { onSelectOption(option) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            option.label,
-                            color = if (option.allow) cs.onPrimary else cs.onError,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        )
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+            options.forEach { option ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(if (option.allow) cs.primary else cs.error)
+                        .clickable { onSelectOption(option) },
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(cs.primary)
-                            .then(
-                                if (onApproveAlways != null) {
-                                    Modifier.combinedClickable(
-                                        onClick = onApprove,
-                                        onLongClick = onApproveAlways,
-                                    )
-                                } else {
-                                    Modifier.clickable(onClick = onApprove)
-                                },
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("Allow", color = cs.onPrimary, fontWeight = FontWeight.SemiBold)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(cs.error)
-                            .clickable(onClick = onDeny),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("Deny", color = cs.onError, fontWeight = FontWeight.SemiBold)
-                    }
+                    Text(
+                        option.label,
+                        color = if (option.allow) cs.onPrimary else cs.onError,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
                 }
             }
         }

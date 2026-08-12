@@ -700,7 +700,20 @@ class PaseoDaemonClient(
                     val merged = if (session.pendingPermissions.isEmpty()) {
                     timelineSummaries[session.id]?.let { session.copy(summary = it) } ?: session
                 } else {
-                    session
+                    val existing = if (idx >= 0) this[idx] else null
+                    if (existing != null && existing.pendingPermissions.isNotEmpty()) {
+                        val mergedPerms = session.pendingPermissions.map { newPerm ->
+                            val oldPerm = existing.pendingPermissions.find { it.id == newPerm.id }
+                            if (newPerm.options.isEmpty() && oldPerm?.options?.isNotEmpty() == true) {
+                                newPerm.copy(options = oldPerm.options)
+                            } else {
+                                newPerm
+                            }
+                        }
+                        session.copy(pendingPermissions = mergedPerms)
+                    } else {
+                        session
+                    }
                 }
                     if (idx >= 0) this[idx] = merged else add(merged)
                 }

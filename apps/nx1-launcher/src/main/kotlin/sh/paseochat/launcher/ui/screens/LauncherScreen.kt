@@ -408,6 +408,7 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                         available: Offset,
                         source: NestedScrollSource,
                     ): Offset {
+                        if (source != NestedScrollSource.UserInput) return Offset.Zero
                         if (pageHeightPx > 0f && available.y != 0f) {
                             val delta = (-available.y / pageHeightPx) * SWIPE_SENSITIVITY
                             val target = (offset.value + delta).coerceIn(0f, maxIndex.toFloat())
@@ -422,7 +423,9 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                         available: Velocity,
                     ): Velocity {
                         val current = offset.value
-                        val target = current.roundToInt().coerceIn(0, maxIndex).toFloat()
+                        val v = -available.y
+                        val predicted = current - (v / pageHeightPx) * 0.15f * SWIPE_SENSITIVITY
+                        val target = predicted.roundToInt().coerceIn(0, maxIndex).toFloat()
                         if (target != current) {
                             offset.animateTo(target, spring(dampingRatio = Spring.DampingRatioLowBouncy))
                         }

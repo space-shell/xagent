@@ -412,8 +412,6 @@ fun AgentCard(
                                 session.summary,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = meta.onContainerColor,
-                                maxLines = 16,
-                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                         Spacer(Modifier.height(8.dp))

@@ -774,7 +774,7 @@ class PaseoDaemonClient(
         when (itemType) {
             "assistant_message" -> {
                 val text = item["text"]?.jsonPrimitive?.contentOrNull ?: return
-                timelineSummaries[agentId] = text.take(140).trim()
+                timelineSummaries[agentId] = text.trim()
             }
             "reasoning" -> {
                 timelineSummaries[agentId] = "Thinking\u2026"

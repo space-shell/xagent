@@ -502,49 +502,35 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                         val newModeId = if (session.mode == AgentMode.Plan) session.buildModeId else session.planModeId
                                         connectionManager.setAgentMode(session.id, newModeId)
                                     },
-                                    onApprove = {
-                                        val permId = session.pendingPermissionId
-                                        if (permId != null) {
-                                            connectionManager.respondToPermission(session.id, permId, allow = true)
+                                    onApprove = { permId ->
+                                        connectionManager.respondToPermission(session.id, permId, allow = true)
+                                    },
+                                    onApproveAlways = { permId ->
+                                        connectionManager.respondToPermission(session.id, permId, allow = true)
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Allowed \u2014 future requests still need approval")
                                         }
                                     },
-                                    onApproveAlways = {
-                                        val permId = session.pendingPermissionId
-                                        if (permId != null) {
-                                            connectionManager.respondToPermission(session.id, permId, allow = true)
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar("Allowed \u2014 future requests still need approval")
-                                            }
-                                        }
+                                    onDeny = { permId ->
+                                        connectionManager.respondToPermission(session.id, permId, allow = false)
                                     },
-                                    onDeny = {
-                                        val permId = session.pendingPermissionId
-                                        if (permId != null) {
-                                            connectionManager.respondToPermission(session.id, permId, allow = false)
-                                        }
-                                    },
-                                    onSelectOption = { opt ->
-                                        val permId = session.pendingPermissionId
-                                        if (permId != null) {
-                                            connectionManager.respondToPermissionWithAction(
-                                                session.id, permId,
-                                                selectedActionId = opt.id,
-                                            )
-                                        }
+                                    onSelectOption = { permId, opt ->
+                                        connectionManager.respondToPermissionWithAction(
+                                            session.id, permId,
+                                            selectedActionId = opt.id,
+                                        )
                                     },
                                     onArchive = {
                                         connectionManager.archiveAgent(session.id)
                                     },
-                                    onConfirmTranscript = {
-                                        pendingTranscript?.let { text ->
-                                            if (session.permissionKind == "question" && session.pendingPermissionId != null) {
-                                                connectionManager.respondToPermissionWithAction(
-                                                    session.id, session.pendingPermissionId,
-                                                    customAnswer = text,
-                                                )
-                                            } else {
-                                                connectionManager.sendAgentMessage(session.id, text)
-                                            }
+                                    onConfirmTranscript = { permId, text ->
+                                        if (permId != null) {
+                                            connectionManager.respondToPermissionWithAction(
+                                                session.id, permId,
+                                                customAnswer = text,
+                                            )
+                                        } else {
+                                            connectionManager.sendAgentMessage(session.id, text)
                                         }
                                         pendingTranscript = null
                                         pendingSessionId = null

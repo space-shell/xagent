@@ -9,6 +9,14 @@ data class PermOption(
     val allow: Boolean,
 )
 
+data class PendingPermission(
+    val id: String,
+    val kind: String,
+    val title: String?,
+    val description: String?,
+    val options: List<PermOption>,
+)
+
 data class AgentSession(
     val id: String,
     val title: String,
@@ -20,13 +28,9 @@ data class AgentSession(
     val mode: AgentMode = AgentMode.Build,
     val planModeId: String = "plan",
     val buildModeId: String = "auto",
-    val pendingPermissionId: String? = null,
-    val permissionKind: String? = null,
-    val permissionTitle: String? = null,
-    val permissionOptions: List<PermOption> = emptyList(),
+    val pendingPermissions: List<PendingPermission> = emptyList(),
     val connectionId: String = "",
     val serverName: String = "",
     val serverId: String = "",
     val cwd: String = "",
 )
-

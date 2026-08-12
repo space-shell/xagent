@@ -1,14 +1,10 @@
 package sh.paseochat.launcher.ui.components
 
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,24 +31,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.HourglassEmpty
-import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.KeyboardArrowLeft
+import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.PauseCircleOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -72,18 +67,17 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
 import sh.paseochat.launcher.model.PermOption
+import sh.paseochat.launcher.model.PendingPermission
 import sh.paseochat.launcher.ui.rememberHaptics
 import sh.paseochat.launcher.ui.theme.DoneContainerDark
 import sh.paseochat.launcher.ui.theme.DoneContainerLight
 import sh.paseochat.launcher.ui.theme.OnDoneDark
 import sh.paseochat.launcher.ui.theme.OnDoneLight
 import sh.paseochat.launcher.ui.theme.PaseoTheme
-import sh.paseochat.launcher.ui.theme.R1Orange
 
 @Composable
 fun stateDotColor(state: AgentState): Color = stateMeta(state).containerColor
@@ -100,12 +94,12 @@ fun AgentCard(
     onMicDown: () -> Unit = {},
     onMicUp: () -> Unit = {},
     onCycleMode: () -> Unit = {},
-    onApprove: () -> Unit = {},
-    onDeny: () -> Unit = {},
-    onApproveAlways: (() -> Unit)? = null,
-    onSelectOption: (PermOption) -> Unit = {},
+    onApprove: (String) -> Unit = {},
+    onDeny: (String) -> Unit = {},
+    onApproveAlways: ((String) -> Unit)? = null,
+    onSelectOption: (String, PermOption) -> Unit = { _, _ -> },
     onArchive: () -> Unit = {},
-    onConfirmTranscript: () -> Unit = {},
+    onConfirmTranscript: (String?, String) -> Unit = { _, _ -> },
     onCancelTranscript: () -> Unit = {},
     onOpenInPaseo: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -129,6 +123,13 @@ fun AgentCard(
     } else {
         Color(0xFF666666)
     }
+
+    val perms = session.pendingPermissions
+    var permIndex by remember(session.id) { mutableIntStateOf(0) }
+    LaunchedEffect(perms.size) {
+        if (permIndex >= perms.size) permIndex = 0
+    }
+    val currentPerm = perms.getOrNull(permIndex.coerceIn(0, maxOf(0, perms.lastIndex)))
 
     Box(
         modifier
@@ -216,24 +217,87 @@ fun AgentCard(
                         val workspaceName = session.cwd.substringAfterLast('/').ifBlank { "?" }
                         val modelName = session.model.substringAfterLast('/')
                         Text(
-                            "${serverName.ifBlank { "?" }} · $workspaceName · $modelName",
+                            "${serverName.ifBlank { "?" }} \u00b7 $workspaceName \u00b7 $modelName",
                             style = MaterialTheme.typography.labelSmall,
                             color = meta.onContainerColor.copy(alpha = 0.7f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Spacer(Modifier.height(12.dp))
-                        val hasOptions = session.state == AgentState.AwaitingInput &&
-                            session.permissionOptions.isNotEmpty()
-                        if (hasOptions) {
+
+                        if (currentPerm != null) {
+                            if (perms.size > 1) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(meta.onContainerColor.copy(alpha = 0.12f))
+                                            .then(
+                                                if (permIndex > 0) Modifier.clickable { haptics.tick(); permIndex-- }
+                                                else Modifier,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.KeyboardArrowLeft,
+                                            contentDescription = "Previous question",
+                                            tint = meta.onContainerColor.copy(alpha = if (permIndex > 0) 0.9f else 0.3f),
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                    Text(
+                                        "${permIndex + 1} / ${perms.size}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = meta.onContainerColor.copy(alpha = 0.7f),
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(meta.onContainerColor.copy(alpha = 0.12f))
+                                            .then(
+                                                if (permIndex < perms.size - 1) Modifier.clickable { haptics.tick(); permIndex++ }
+                                                else Modifier,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.KeyboardArrowRight,
+                                            contentDescription = "Next question",
+                                            tint = meta.onContainerColor.copy(alpha = if (permIndex < perms.size - 1) 0.9f else 0.3f),
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
+                            }
                             Text(
-                                session.permissionTitle ?: session.summary,
+                                currentPerm.title ?: "Permission required",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = meta.onContainerColor,
                                 fontWeight = FontWeight.Medium,
-                                maxLines = 3,
+                                maxLines = 4,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            currentPerm.description?.let { desc ->
+                                if (desc != currentPerm.title) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        desc,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = meta.onContainerColor.copy(alpha = 0.7f),
+                                        maxLines = 6,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         } else {
                             Text(
                                 session.summary,
@@ -254,25 +318,26 @@ fun AgentCard(
                         Spacer(Modifier.weight(1f))
                         if (pendingTranscript != null) {
                             ConfirmCancelBar(
-                                onConfirm = { haptics.confirm(); onConfirmTranscript() },
+                                onConfirm = {
+                                    haptics.confirm()
+                                    onConfirmTranscript(currentPerm?.id, pendingTranscript)
+                                },
                                 onCancel = { haptics.reject(); onCancelTranscript() },
                             )
-                        } else if (hasOptions) {
-                            QuestionBar(
-                                options = session.permissionOptions,
+                        } else if (currentPerm != null) {
+                            PermissionBar(
+                                options = currentPerm.options,
+                                permissionId = currentPerm.id,
                                 onSelectOption = { opt ->
                                     haptics.confirm()
-                                    onSelectOption(opt)
+                                    onSelectOption(currentPerm.id, opt)
                                 },
+                                onApprove = { haptics.confirm(); onApprove(currentPerm.id) },
+                                onDeny = { haptics.reject(); onDeny(currentPerm.id) },
+                                onApproveAlways = onApproveAlways?.let { fn -> { fn(currentPerm.id) } },
                                 listening = listening,
                                 onMicDown = onMicDown,
                                 onMicUp = onMicUp,
-                            )
-                        } else if (session.state == AgentState.AwaitingInput) {
-                            ApprovalBar(
-                                onApprove = { haptics.confirm(); onApprove() },
-                                onDeny = { haptics.reject(); onDeny() },
-                                onApproveAlways = onApproveAlways,
                             )
                         } else {
                             Row(
@@ -295,55 +360,13 @@ fun AgentCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ApprovalBar(
+private fun PermissionBar(
+    options: List<PermOption>,
+    permissionId: String,
+    onSelectOption: (PermOption) -> Unit,
     onApprove: () -> Unit,
     onDeny: () -> Unit,
-    onApproveAlways: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
-) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(36.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(cs.primary)
-                .then(
-                    if (onApproveAlways != null) {
-                        Modifier.combinedClickable(
-                            onClick = onApprove,
-                            onLongClick = onApproveAlways,
-                        )
-                    } else {
-                        Modifier.clickable(onClick = onApprove)
-                    }
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Allow", color = cs.onPrimary, fontWeight = FontWeight.SemiBold)
-        }
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(36.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(cs.error)
-                .clickable(onClick = onDeny),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Deny", color = cs.onError, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
-
-@Composable
-private fun QuestionBar(
-    options: List<PermOption>,
-    onSelectOption: (PermOption) -> Unit,
+    onApproveAlways: (() -> Unit)?,
     listening: Boolean,
     onMicDown: () -> Unit,
     onMicUp: () -> Unit,
@@ -364,25 +387,64 @@ private fun QuestionBar(
                 .weight(1f)
                 .verticalScroll(scrollState),
         ) {
-            options.forEach { option ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 6.dp)
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(if (option.allow) cs.primary else cs.error)
-                        .clickable { onSelectOption(option) },
-                    contentAlignment = Alignment.Center,
+            if (options.isNotEmpty()) {
+                options.forEach { option ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp)
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (option.allow) cs.primary else cs.error)
+                            .clickable { onSelectOption(option) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            option.label,
+                            color = if (option.allow) cs.onPrimary else cs.onError,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        option.label,
-                        color = if (option.allow) cs.onPrimary else cs.onError,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(cs.primary)
+                            .then(
+                                if (onApproveAlways != null) {
+                                    Modifier.combinedClickable(
+                                        onClick = onApprove,
+                                        onLongClick = onApproveAlways,
+                                    )
+                                } else {
+                                    Modifier.clickable(onClick = onApprove)
+                                },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Allow", color = cs.onPrimary, fontWeight = FontWeight.SemiBold)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(cs.error)
+                            .clickable(onClick = onDeny),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Deny", color = cs.onError, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }

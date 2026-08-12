@@ -40,6 +40,7 @@ import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
 import sh.paseochat.launcher.model.CreateAgentResult
+import sh.paseochat.launcher.model.PendingPermission
 import sh.paseochat.launcher.model.PermOption
 import sh.paseochat.launcher.model.ProviderModelOption
 import sh.paseochat.launcher.model.WorkspaceOption
@@ -549,17 +550,15 @@ class PaseoDaemonClient(
 
         Log.d(TAG, "agent_permission_request agentId=$agentId reqId=$reqId kind=$kind title=${title?.take(60)} options=${options.size} raw=${message.toString().take(300)}")
 
+        val perm = PendingPermission(id = reqId, kind = kind, title = title, description = desc, options = options)
         val current = _agents.value
         val idx = current.indexOfFirst { it.id == agentId }
         if (idx >= 0) {
             val session = current[idx]
+            val existing = session.pendingPermissions.filterNot { it.id == reqId }
             val updated = session.copy(
                 state = AgentState.AwaitingInput,
-                pendingPermissionId = reqId,
-                permissionKind = kind,
-                permissionTitle = title,
-                permissionOptions = options,
-                summary = desc ?: title ?: session.summary,
+                pendingPermissions = existing + perm,
             )
             _agents.value = current.toMutableList().apply { this[idx] = updated }
         } else {
@@ -570,17 +569,21 @@ class PaseoDaemonClient(
     private fun handleAgentPermissionResolved(message: JsonObject) {
         val payload = message["payload"]?.jsonObject ?: return
         val agentId = payload["agentId"]?.jsonPrimitive?.contentOrNull ?: return
-        Log.d(TAG, "agent_permission_resolved agentId=$agentId")
+        val requestId = payload["requestId"]?.jsonPrimitive?.contentOrNull
+        Log.d(TAG, "agent_permission_resolved agentId=$agentId requestId=$requestId")
         val current = _agents.value
         val idx = current.indexOfFirst { it.id == agentId }
         if (idx >= 0) {
             val session = current[idx]
+            val updatedPerms = if (requestId != null) {
+                session.pendingPermissions.filterNot { it.id == requestId }
+            } else {
+                session.pendingPermissions
+            }
+            val newState = if (updatedPerms.isEmpty()) AgentState.Idle else AgentState.AwaitingInput
             val updated = session.copy(
-                pendingPermissionId = null,
-                permissionKind = null,
-                permissionTitle = null,
-                permissionOptions = emptyList(),
-                state = AgentState.Idle,
+                pendingPermissions = updatedPerms,
+                state = newState,
             )
             _agents.value = current.toMutableList().apply { this[idx] = updated }
         }
@@ -694,7 +697,11 @@ class PaseoDaemonClient(
                 Log.d(TAG, "agent_update upsert: ${session.id} state=${session.state}")
                 _agents.value = _agents.value.toMutableList().apply {
                     val idx = indexOfFirst { it.id == session.id }
-                    val merged = timelineSummaries[session.id]?.let { session.copy(summary = it) } ?: session
+                    val merged = if (session.pendingPermissions.isEmpty()) {
+                    timelineSummaries[session.id]?.let { session.copy(summary = it) } ?: session
+                } else {
+                    session
+                }
                     if (idx >= 0) this[idx] = merged else add(merged)
                 }
             }
@@ -732,7 +739,7 @@ class PaseoDaemonClient(
         val summary = timelineSummaries[agentId] ?: return
         val current = _agents.value
         val idx = current.indexOfFirst { it.id == agentId }
-        if (idx >= 0) {
+        if (idx >= 0 && current[idx].pendingPermissions.isEmpty()) {
             _agents.value = current.toMutableList().apply {
                 this[idx] = this[idx].copy(summary = summary)
             }
@@ -755,31 +762,30 @@ class PaseoDaemonClient(
         val buildModeId = modeIds.firstOrNull { !it.contains("plan") } ?: "auto"
 
         val pendingPerms = agent["pendingPermissions"] as? JsonArray
-        val hasPendingPerms = pendingPerms != null && pendingPerms.isNotEmpty()
         val attentionReason = agent["attentionReason"]?.jsonPrimitive?.contentOrNull
         val lastError = agent["lastError"]?.jsonPrimitive?.contentOrNull
 
-        val firstPerm = pendingPerms?.firstOrNull()?.jsonObject
-        val permId = firstPerm?.get("id")?.jsonPrimitive?.contentOrNull
-        val permKind = firstPerm?.get("kind")?.jsonPrimitive?.contentOrNull
-        val permTitle = firstPerm?.get("title")?.jsonPrimitive?.contentOrNull
-            ?: firstPerm?.get("description")?.jsonPrimitive?.contentOrNull
-            ?: firstPerm?.get("name")?.jsonPrimitive?.contentOrNull
-        val permDesc = firstPerm?.get("description")?.jsonPrimitive?.contentOrNull
-            ?: firstPerm?.get("title")?.jsonPrimitive?.contentOrNull
-
-        val permOptions = if (permKind == "question") {
-            val actions = firstPerm?.get("actions") as? JsonArray
-            actions?.mapNotNull { action ->
+        val permissions = pendingPerms?.mapNotNull { permElement ->
+            val perm = permElement.jsonObject
+            val permId = perm["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val permKind = perm["kind"]?.jsonPrimitive?.contentOrNull ?: "other"
+            val permTitle = perm["title"]?.jsonPrimitive?.contentOrNull
+                ?: perm["name"]?.jsonPrimitive?.contentOrNull
+                ?: perm["description"]?.jsonPrimitive?.contentOrNull
+            val permDesc = perm["description"]?.jsonPrimitive?.contentOrNull
+                ?: perm["title"]?.jsonPrimitive?.contentOrNull
+            val actions = perm["actions"] as? JsonArray
+            val options = actions?.mapNotNull { action ->
                 val actionObj = action.jsonObject
                 val actionId = actionObj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                 val actionLabel = actionObj["label"]?.jsonPrimitive?.contentOrNull ?: actionId
                 val actionBehavior = actionObj["behavior"]?.jsonPrimitive?.contentOrNull ?: "allow"
                 PermOption(id = actionId, label = actionLabel, allow = actionBehavior == "allow")
             } ?: emptyList()
-        } else {
-            emptyList()
-        }
+            PendingPermission(id = permId, kind = permKind, title = permTitle, description = permDesc, options = options)
+        } ?: emptyList()
+
+        val hasPendingPerms = permissions.isNotEmpty()
 
         val state = when {
             hasPendingPerms -> AgentState.AwaitingInput
@@ -792,7 +798,7 @@ class PaseoDaemonClient(
             else -> AgentState.Idle
         }
 
-        val summary = lastError ?: permDesc ?: when (state) {
+        val summary = lastError ?: when (state) {
             AgentState.Running -> "Working in $cwd"
             AgentState.Done -> "Task complete."
             AgentState.Error -> "Agent encountered an error."
@@ -814,10 +820,7 @@ class PaseoDaemonClient(
             mode = mode,
             planModeId = planModeId,
             buildModeId = buildModeId,
-            pendingPermissionId = permId,
-            permissionKind = permKind,
-            permissionTitle = if (permKind == "question") permTitle else null,
-            permissionOptions = permOptions,
+            pendingPermissions = permissions,
             cwd = cwd,
         )
     }

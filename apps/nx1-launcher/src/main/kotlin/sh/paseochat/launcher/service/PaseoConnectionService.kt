@@ -40,6 +40,7 @@ class PaseoConnectionService : Service() {
     val connectionManager: ConnectionManager = ConnectionManager(httpClient)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var stateJob: Job? = null
+    private var wakeLockJob: Job? = null
     private var attentionJob: Job? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -64,6 +65,7 @@ class PaseoConnectionService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification(0))
         foreground = true
         observeConnections()
+        observeWakeLock()
         observeAgentAttention()
     }
 
@@ -71,9 +73,21 @@ class PaseoConnectionService : Service() {
         stateJob?.cancel()
         stateJob = scope.launch {
             connectionManager.connectionStates.collectLatest { states ->
-                val anyConnected = states.values.any { it == ConnectionState.Connected }
-                if (anyConnected) acquireWakeLock() else releaseWakeLock()
                 refreshNotification(states.count { it.value == ConnectionState.Connected })
+            }
+        }
+    }
+
+    private fun observeWakeLock() {
+        wakeLockJob?.cancel()
+        wakeLockJob = scope.launch {
+            connectionManager.allAgents.collectLatest { agents ->
+                val hasActive = agents.any { agent ->
+                    agent.state == AgentState.Running ||
+                        agent.state == AgentState.AwaitingInput ||
+                        agent.state == AgentState.Queued
+                }
+                if (hasActive) acquireWakeLock() else releaseWakeLock()
             }
         }
     }
@@ -238,6 +252,7 @@ class PaseoConnectionService : Service() {
 
     override fun onDestroy() {
         stateJob?.cancel()
+        wakeLockJob?.cancel()
         attentionJob?.cancel()
         releaseWakeLock()
         connectionManager.close()

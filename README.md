@@ -16,9 +16,26 @@ scroll/swipe card nav, card-based results). Not the r1 cloud backend.
 
 ## Status
 
+**v0.3.2 in progress** — permission rendering, nested scroll, battery.
+
 L0–L3 (UI/stub) and I0a–I0e (daemon integration) are **complete and on-device**.
 Multi-connection support (DIRECT + E2EE RELAY) is **complete and verified** —
 two simultaneous daemon connections merge their agent decks on-device.
+
+### What's new in v0.3.2
+
+- **Permission system overhaul** — `kind=question` permissions render inline
+  (question text + auto-sized option buttons, multi-question cycling); `kind=tool`
+  permissions use the ApprovalBar (Allow/Deny, hold for allow-always).
+- **Nested scroll coordination** — card content scroll areas coordinate with deck
+  paging via `NestedScrollConnection` + `onPreFling` velocity prediction. Dragging
+  within a card scrolls content; dragging past the boundary pages the deck.
+- **Full message display** — card shows the complete last assistant message
+  (scrollable) instead of a 140-char truncated preview.
+- **Battery optimizations** — smart wake lock (acquired only when agents are
+  Running/AwaitingInput/Queued, released when all idle), ping interval doubled to
+  60s, reconnect cap at 10 attempts, E2EE handshake cap at 20 retries, debounced
+  remerge (50ms), off-screen deck cards skip composition beyond 3 pages.
 
 See [`docs/mvp.md`](docs/mvp.md) for the increment plan (L0–L4 UI → I0–I2
 integration), [`docs/card-model.md`](docs/card-model.md) for the card UX spec,
@@ -63,9 +80,11 @@ heightDp = 584)`.
 apps/nx1-launcher/      Kotlin + Compose launcher
   src/main/kotlin/sh/paseochat/launcher/
     ui/components/       AgentCard, ConnectionCard, QrScanner, AppsCard, SettingsCard
-    ui/screens/          LauncherScreen (custom DeckScroller)
+    ui/screens/          LauncherScreen (custom DeckScroller, NestedScrollConnection)
     daemon/              PaseoDaemonClient, ConnectionManager, E2eeCrypto
+    service/             PaseoConnectionService (foreground service, smart wake lock)
     model/               Agent, ConnectionProfile, ConnectionOffer
+    voice/               VoiceController (SpeechRecognizer wrapper)
   src/main/AndroidManifest.xml   CATEGORY_HOME launcher
 docs/                   mvp plan, card-model spec, user-testing protocol
 flake.nix               devshell (per AGENTS.md)

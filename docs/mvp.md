@@ -354,6 +354,8 @@ real daemon timeline events.
       reasoning as a live state. `2b4af3d`.
 - [x] `tool_call` events do not override the summary (the assistant's last
       stated intent is the better one-line description).
+- [x] Full message display — removed the 140-char truncation; card now shows the
+      complete last assistant message, scrollable via nested scroll. `e86c675`.
 **Stories** — `US-TL-1` As Sam, I want to glance at a card and see what the agent
 is currently doing, in the agent's own words.
 `US-TL-2` As Sam, I want the card to surface "Thinking…" when the agent is
@@ -365,6 +367,75 @@ reasoning, so silent contemplation doesn't look like a hang.
       `SharedPreferences`. `87d19b7`.
 **Stories** — `US-PS-1` As Sam, I don't want to re-enter my daemon host and
 password every time the device reboots.
+
+---
+
+## 6c. Shipped post-I0 — permissions, scroll & battery (v0.3.2)
+
+This section captures the v0.3.2 work: permission rendering overhaul, nested
+scroll coordination, and battery optimizations. All items below are **complete
+and verified on-device** across commits `3b5a0fb` → `89b0499`.
+
+### Permission system overhaul  ✅
+**Goal:** render and respond to both `kind=tool` and `kind=question` permission
+requests with appropriate UX for each.
+- [x] `kind=question` permissions render inline: question text + auto-sized option
+      buttons (no fixed height), multi-question cycling with arrow nav, and answer
+      collection into `{behavior:"allow", updatedInput:{answers:{...}}}`. `3b5a0fb`.
+- [x] `kind=tool` permissions use the ApprovalBar (Allow/Deny, hold for allow-always,
+      NO mic while a permission is pending). `3b5a0fb`.
+- [x] Multi-permission cycling: when an agent has multiple pending permissions, a
+      pager with arrows cycles through them. `af9ee56`.
+- [x] Model: `QuestionChoice`, `PendingQuestion`, `PendingPermission.questions`.
+      Parsing: `parseQuestions()` in `PaseoDaemonClient`. `3b5a0fb`.
+- [x] Auto-sized option buttons + scrollable card content area. `b1aee65`.
+**Stories** — `US-PR-1` As Sam, I want to answer a question from the agent
+(multiple choice) from my pocket without touching a keyboard.
+`US-PR-2` As Sam, I want to approve/deny tool execution with a single tap.
+`US-PR-3` As Sam, I want to cycle through multiple pending permissions on the same
+agent without losing context.
+
+### Nested scroll coordination  ✅
+**Goal:** inner scroll areas (card content, settings) coordinate with deck paging
+so that scrolling within a card works naturally, and continuing to scroll past the
+boundary pages the deck.
+- [x] `NestedScrollConnection` on the deck Box: `onPostScroll` processes only
+      `UserInput` source, moving the deck when the child can't consume the delta.
+      `1ba1692`.
+- [x] Sign convention: `-available.y` to match drag gesture convention (screen
+      coordinates, positive = down). `bc610f6`.
+- [x] `onPreFling` intercepts velocity before the child's fling animation; tracks
+      `childOverflowed` flag from `onPostScroll` to decide whether to consume.
+      Velocity prediction: `predicted = current - (v / pageHeightPx) * 0.15f *
+      SWIPE_SENSITIVITY`. `c86eb0b`.
+- [x] `onPostFling` remains as a snap-to-nearest fallback. `c86eb0b`.
+**Stories** — `US-NS-1` As Sam, I want to scroll through a long agent message
+within a card, and when I reach the end, continue scrolling to page to the next
+card — just like a native scroll container.
+`US-NS-2` As Sam, I want fling gestures to carry through the boundary — flinging
+up at the top of a card's content should page the deck with momentum.
+
+### Battery optimizations  ✅
+**Goal:** reduce battery consumption without degrading real-time monitoring.
+- [x] **Smart wake lock** — `PARTIAL_WAKE_LOCK` acquired only when any agent is
+      Running/AwaitingInput/Queued; released when all agents are Idle/Done/Error.
+      The device deep-sleeps between agent runs; kernel network-triggered CPU wake
+      delivers events within milliseconds. `7a9b6f0`.
+- [x] **Ping interval 30s → 60s** — 50% fewer CPU wakeups per connection. `89b0499`.
+- [x] **Reconnect cap at 10** — exponential backoff (1s→30s) for 10 attempts (~3 min
+      total), then Error state. Stops perpetual radio wakeups for unreachable daemons.
+      `89b0499`.
+- [x] **E2EE handshake cap at 20** — 1s retry loop limited to 20 attempts, then
+      fails the connection. `89b0499`.
+- [x] **Debounced remerge** — 50ms debounce collapses 3 rapid `remerge()` calls
+      (agents + serverName + serverId) into 1 on fresh connections. `89b0499`.
+- [x] **Off-screen card composition skip** — deck cards >3 pages from `currentPage`
+      skip their `when` block entirely. Uses `derivedStateOf` (integer page changes
+      only), no per-frame recomposition during animation. `89b0499`.
+**Stories** — `US-BA-1` As Sam, I want the device battery to last through a full
+day of monitoring agents, not just while agents are actively running.
+`US-BA-2` As Sam, I want permission requests and state changes to arrive in near
+real-time even when I haven't touched the device in minutes.
 
 ---
 
@@ -380,7 +451,9 @@ password every time the device reboots.
   the deep link as a second intent after ~500 ms) — only worth adding if the
   Paseo-side race isn't fixed first.
 - **Hardening:** Keystore creds (currently plaintext in SharedPreferences);
-  offline queue; Magisk OTA-survival; battery/thermal.
+  offline queue; Magisk OTA-survival; thermal monitoring. Battery is addressed
+  via smart wake lock (§6c) but further work possible (FCM push instead of
+  persistent socket for background delivery).
 - **Polish:** custom type scale; r1 motion; dark-mode tuning.
 - **Packaging:** `useLegacyPackaging = true` is set for 16 KB-page-size
   compatibility; revisit when the upstream Lazysodium / JNA story improves.

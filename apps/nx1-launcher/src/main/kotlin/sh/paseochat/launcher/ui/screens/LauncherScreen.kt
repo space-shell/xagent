@@ -526,7 +526,7 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                     alpha = if (peek) (4f + oc).coerceIn(0f, 1f) else 1f
                                 },
                         ) {
-                        when (page) {
+                        if (abs(currentPage - pageIndex) <= 3) when (page) {
                             is DeckPage.Agent -> {
                                 val session = page.session
                                 AgentCard(

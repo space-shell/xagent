@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -155,7 +156,17 @@ class ConnectionManager(
         return connections[profileId]?.client?.serverName?.value ?: ""
     }
 
+    private var remergeJob: Job? = null
+
     private fun remerge() {
+        remergeJob?.cancel()
+        remergeJob = scope.launch {
+            delay(50)
+            doRemerge()
+        }
+    }
+
+    private fun doRemerge() {
         val sortedEntries = connections.entries.sortedBy { entry ->
             if (entry.value.profile.connectionType == ConnectionType.DIRECT) 0 else 1
         }

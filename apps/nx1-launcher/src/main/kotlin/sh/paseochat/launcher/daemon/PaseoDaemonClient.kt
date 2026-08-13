@@ -49,9 +49,11 @@ import sh.paseochat.launcher.model.WorkspaceOption
 import java.util.UUID
 
 private const val TAG = "PaseoDaemonClient"
-private const val PING_INTERVAL_MS = 30_000L
+private const val PING_INTERVAL_MS = 60_000L
 private const val MAX_RECONNECT_MS = 30_000L
+private const val MAX_RECONNECT_ATTEMPTS = 10
 private const val HANDSHAKE_RETRY_MS = 1_000L
+private const val MAX_HANDSHAKE_RETRIES = 20
 
 private const val CREATE_AGENT_TIMEOUT_MS = 60_000L
 
@@ -421,10 +423,18 @@ class PaseoDaemonClient(
     private fun startHandshakeRetry() {
         handshakeJob?.cancel()
         handshakeJob = scope.launch {
+            var attempts = 0
             while (!e2eeReady && relayMode) {
+                if (attempts >= MAX_HANDSHAKE_RETRIES) {
+                    Log.d(TAG, "E2EE handshake giving up after $MAX_HANDSHAKE_RETRIES retries")
+                    _connectionState.value = ConnectionState.Error
+                    if (shouldReconnect()) scheduleReconnect()
+                    return@launch
+                }
                 delay(HANDSHAKE_RETRY_MS)
                 if (!e2eeReady && relayMode) {
-                    Log.d(TAG, "E2EE handshake retry...")
+                    attempts++
+                    Log.d(TAG, "E2EE handshake retry $attempts/$MAX_HANDSHAKE_RETRIES")
                     sendE2eeHello()
                 }
             }
@@ -484,6 +494,11 @@ class PaseoDaemonClient(
 
     private fun scheduleReconnect() {
         if (currentHost == null && relayConfig == null) return
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            Log.d(TAG, "scheduleReconnect() giving up after $MAX_RECONNECT_ATTEMPTS attempts")
+            _connectionState.value = ConnectionState.Error
+            return
+        }
         reconnectAttempts++
         val delayMs = (1000L shl (reconnectAttempts - 1).coerceAtMost(4))
             .coerceAtMost(MAX_RECONNECT_MS)

@@ -96,8 +96,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
     implementation("com.google.zxing:core:3.5.3")
-    implementation("com.goterl:lazysodium-android:5.1.0") {
-        exclude(group = "net.java.dev.jna")
-    }
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+
+    testImplementation("junit:junit:4.13.2")
 }

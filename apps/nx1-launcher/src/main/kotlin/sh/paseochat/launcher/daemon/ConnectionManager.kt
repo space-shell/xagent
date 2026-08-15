@@ -201,11 +201,11 @@ class ConnectionManager(
     fun respondToPermissionWithAction(
         agentId: String,
         permissionRequestId: String,
-        selectedActionId: String? = null,
-        customAnswer: String? = null,
+        selectedActionId: String,
+        allow: Boolean,
     ) {
         clientForAgent(agentId)?.respondToPermissionWithAction(
-            agentId, permissionRequestId, selectedActionId, customAnswer,
+            agentId, permissionRequestId, selectedActionId, allow,
         )
     }
 

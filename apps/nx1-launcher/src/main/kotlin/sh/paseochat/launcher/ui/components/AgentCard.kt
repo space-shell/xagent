@@ -71,6 +71,7 @@ import kotlin.math.roundToInt
 import sh.paseochat.launcher.model.AgentMode
 import sh.paseochat.launcher.model.AgentSession
 import sh.paseochat.launcher.model.AgentState
+import sh.paseochat.launcher.model.PermOption
 import sh.paseochat.launcher.model.PendingPermission
 import sh.paseochat.launcher.model.PendingQuestion
 import sh.paseochat.launcher.ui.rememberHaptics
@@ -97,6 +98,7 @@ fun AgentCard(
     onCycleMode: () -> Unit = {},
     onApprove: (String) -> Unit = {},
     onDeny: (String) -> Unit = {},
+    onSelectOption: (String, PermOption) -> Unit = { _, _ -> },
     onApproveAlways: ((String) -> Unit)? = null,
     onAnswerQuestion: (String, Map<String, String>) -> Unit = { _, _ -> },
     onArchive: () -> Unit = {},
@@ -439,11 +441,22 @@ fun AgentCard(
                                 onCancel = { haptics.reject(); onCancelTranscript() },
                             )
                         } else if (currentPerm != null && !isQuestionPerm) {
-                            ApprovalBar(
-                                onApprove = { haptics.confirm(); onApprove(currentPerm.id) },
-                                onDeny = { haptics.reject(); onDeny(currentPerm.id) },
-                                onApproveAlways = onApproveAlways?.let { fn -> { fn(currentPerm.id) } },
-                            )
+                            if (currentPerm.options.isNotEmpty()) {
+                                OptionBar(
+                                    options = currentPerm.options,
+                                    onContainerColor = meta.onContainerColor,
+                                    onSelect = { option ->
+                                        if (option.allow) haptics.confirm() else haptics.reject()
+                                        onSelectOption(currentPerm.id, option)
+                                    },
+                                )
+                            } else {
+                                ApprovalBar(
+                                    onApprove = { haptics.confirm(); onApprove(currentPerm.id) },
+                                    onDeny = { haptics.reject(); onDeny(currentPerm.id) },
+                                    onApproveAlways = onApproveAlways?.let { fn -> { fn(currentPerm.id) } },
+                                )
+                            }
                         } else if (currentPerm == null) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -506,6 +519,47 @@ private fun ApprovalBar(
             contentAlignment = Alignment.Center,
         ) {
             Text("Deny", color = cs.onError, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+/**
+ * Server-provided permission actions. Uniform styling — the option's label
+ * carries the outcome; the full PermOption (id + allow) is forwarded so the
+ * wire response encodes the action's actual behavior (F-01).
+ */
+@Composable
+private fun OptionBar(
+    options: List<PermOption>,
+    onContainerColor: Color,
+    onSelect: (PermOption) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = 200.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        options.forEach { option ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(onContainerColor.copy(alpha = 0.12f))
+                    .clickable { onSelect(option) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    option.label,
+                    color = onContainerColor,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+            }
         }
     }
 }

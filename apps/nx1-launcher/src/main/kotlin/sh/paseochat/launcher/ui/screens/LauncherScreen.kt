@@ -564,6 +564,13 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                     onDeny = { permId ->
                                         connectionManager.respondToPermission(session.id, permId, allow = false)
                                     },
+                                    onSelectOption = { permId, option ->
+                                        connectionManager.respondToPermissionWithAction(
+                                            session.id, permId,
+                                            selectedActionId = option.id,
+                                            allow = option.allow,
+                                        )
+                                    },
                                     onAnswerQuestion = { permId, answers ->
                                         connectionManager.respondToQuestion(session.id, permId, answers)
                                     },

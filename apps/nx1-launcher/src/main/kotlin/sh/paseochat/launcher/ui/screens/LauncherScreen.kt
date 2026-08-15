@@ -701,24 +701,6 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                             }
                             is DeckPage.Apps -> {
                                 AppsCard(
-                                    onOpenLauncher = {
-                                        val pm = context.packageManager
-                                        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                                        val launchers = pm.queryIntentActivities(homeIntent, 0)
-                                            .filter { it.activityInfo.packageName != context.packageName }
-                                        val target = launchers.firstOrNull()
-                                        if (target != null) {
-                                            val intent = Intent(Intent.ACTION_MAIN).apply {
-                                                addCategory(Intent.CATEGORY_HOME)
-                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                                component = ComponentName(
-                                                    target.activityInfo.packageName,
-                                                    target.activityInfo.name,
-                                                )
-                                            }
-                                            context.startActivity(intent)
-                                        }
-                                    },
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }

@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -54,7 +55,6 @@ private const val MAX_SHORTCUTS = 4
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppsCard(
-    onOpenLauncher: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -71,6 +71,7 @@ fun AppsCard(
     }
     var editingSlot by remember { mutableStateOf(-1) }
     var showPicker by remember { mutableStateOf(false) }
+    var showAllApps by remember { mutableStateOf(false) }
 
     fun saveShortcuts(list: List<String>) {
         shortcuts = list
@@ -121,82 +122,117 @@ fun AppsCard(
                     color = cs.onSurface,
                 )
                 Text(
-                    "Quick launch",
+                    if (showAllApps) "All apps" else "Quick launch",
                     style = MaterialTheme.typography.labelSmall,
                     color = cs.onSurface.copy(alpha = 0.7f),
                 )
                 Spacer(Modifier.height(16.dp))
 
-                for (i in 0 until MAX_SHORTCUTS) {
-                    val pkg = shortcuts.getOrNull(i)
-                    if (pkg != null) {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(22.dp))
-                                .background(cs.surfaceVariant)
-                                .combinedClickable(
-                                    onClick = { launchApp(pkg) },
-                                    onLongClick = {
+                if (showAllApps) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        launchableApps.forEach { info ->
+                            val label = info.loadLabel(pm).toString()
+                            val pkg = info.activityInfo.packageName
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .background(cs.surfaceVariant)
+                                    .clickable { launchApp(pkg) }
+                                    .padding(horizontal = 16.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = cs.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                } else {
+                    for (i in 0 until MAX_SHORTCUTS) {
+                        val pkg = shortcuts.getOrNull(i)
+                        if (pkg != null) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .background(cs.surfaceVariant)
+                                    .combinedClickable(
+                                        onClick = { launchApp(pkg) },
+                                        onLongClick = {
+                                            editingSlot = i
+                                            showPicker = true
+                                        },
+                                    )
+                                    .padding(horizontal = 16.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                Text(
+                                    getAppLabel(pkg),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = cs.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        } else {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .background(cs.surfaceVariant.copy(alpha = 0.5f))
+                                    .clickable {
                                         editingSlot = i
                                         showPicker = true
                                     },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "\u2014 Add \u2014",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = cs.onSurfaceVariant.copy(alpha = 0.5f),
                                 )
-                                .padding(horizontal = 16.dp),
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            Text(
-                                getAppLabel(pkg),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = cs.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            }
                         }
-                    } else {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(22.dp))
-                                .background(cs.surfaceVariant.copy(alpha = 0.5f))
-                                .clickable {
-                                    editingSlot = i
-                                    showPicker = true
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                "\u2014 Add \u2014",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = cs.onSurfaceVariant.copy(alpha = 0.5f),
-                            )
-                        }
+                        if (i < MAX_SHORTCUTS - 1) Spacer(Modifier.height(8.dp))
                     }
-                    if (i < MAX_SHORTCUTS - 1) Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.weight(1f))
                 }
-                Spacer(Modifier.weight(1f))
+
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .height(44.dp)
                         .clip(RoundedCornerShape(22.dp))
                         .background(cs.surfaceVariant)
-                        .clickable(onClick = onOpenLauncher),
+                        .clickable { showAllApps = !showAllApps },
                     contentAlignment = Alignment.Center,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Outlined.Apps,
+                            imageVector = if (showAllApps) Icons.Outlined.ChevronLeft else Icons.Outlined.Apps,
                             contentDescription = null,
                             tint = cs.onSurfaceVariant,
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.size(8.dp))
                         Text(
-                            "Launcher",
+                            if (showAllApps) "Quick apps" else "All apps",
                             color = cs.onSurfaceVariant,
                             fontWeight = FontWeight.SemiBold,
                         )

@@ -16,26 +16,34 @@ scroll/swipe card nav, card-based results). Not the r1 cloud backend.
 
 ## Status
 
-**v0.3.2 in progress** — permission rendering, nested scroll, battery.
+**v0.4.0 released** — 16 KB ELF compatibility, optimistic archive, wizard
+feedback, full-response card display.
 
 L0–L3 (UI/stub) and I0a–I0e (daemon integration) are **complete and on-device**.
 Multi-connection support (DIRECT + E2EE RELAY) is **complete and verified** —
 two simultaneous daemon connections merge their agent decks on-device.
 
-### What's new in v0.3.2
+### What's new in v0.4.0
 
-- **Permission system overhaul** — `kind=question` permissions render inline
-  (question text + auto-sized option buttons, multi-question cycling); `kind=tool`
-  permissions use the ApprovalBar (Allow/Deny, hold for allow-always).
-- **Nested scroll coordination** — card content scroll areas coordinate with deck
-  paging via `NestedScrollConnection` + `onPreFling` velocity prediction. Dragging
-  within a card scrolls content; dragging past the boundary pages the deck.
-- **Full message display** — card shows the complete last assistant message
-  (scrollable) instead of a 140-char truncated preview.
-- **Battery optimizations** — smart wake lock (acquired only when agents are
-  Running/AwaitingInput/Queued, released when all idle), ping interval doubled to
-  60s, reconnect cap at 10 attempts, E2EE handshake cap at 20 retries, debounced
-  remerge (50ms), off-screen deck cards skip composition beyond 3 pages.
+- **16 KB page-size compatibility** — the 16 KB-ELF install warning is gone:
+  Lazysodium/JNA replaced with a pure-Java BouncyCastle E2EE implementation
+  (byte-identical wire format, libsodium known-answer tested), CameraX
+  bumped to 1.4.1, APK ships arm64-v8a only with uncompressed page-aligned
+  native libs, and CI now gates on 16 KB ELF alignment.
+- **Optimistic archive** — session cards disappear immediately; restored
+  only if the daemon rejects the request.
+- **Wizard feedback** — a "Creating session…" step shows immediately after
+  STT confirmation; open-in-Paseo/restart buttons appear on success; failure
+  returns to the prompt with the transcript preserved for retry. Restarting
+  the wizard no longer resurrects the final step after navigating away.
+- **Full response display** — multi-part streaming assistant responses are
+  accumulated into the card summary so the entire last message is visible
+  in the scrollable content area; transcript bubbles are unclamped and the
+  card auto-follows streaming text.
+- **Apps card** — the "All apps" button browses every launchable app
+  in-card instead of launching the default launcher.
+- **AGENTS.md** — repo glossary (UI surfaces, session lifecycle,
+  connectivity).
 
 See [`docs/mvp.md`](docs/mvp.md) for the increment plan (L0–L4 UI → I0–I2
 integration), [`docs/card-model.md`](docs/card-model.md) for the card UX spec,

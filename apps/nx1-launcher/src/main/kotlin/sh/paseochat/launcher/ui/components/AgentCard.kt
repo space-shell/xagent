@@ -231,6 +231,12 @@ fun AgentCard(
                         Spacer(Modifier.height(12.dp))
 
                         val contentScroll = rememberScrollState()
+                        val followThresholdPx = with(density) { 48.dp.toPx() }
+                        LaunchedEffect(session.id, session.summary, session.userInput) {
+                            if (contentScroll.maxValue - contentScroll.value <= followThresholdPx) {
+                                contentScroll.animateScrollTo(contentScroll.maxValue)
+                            }
+                        }
                         Column(
                             Modifier
                                 .weight(1f)

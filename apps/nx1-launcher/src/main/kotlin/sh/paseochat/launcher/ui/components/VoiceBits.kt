@@ -188,7 +188,7 @@ fun ListeningLine(partialText: String) {
 }
 
 @Composable
-fun TranscriptBubble(text: String, textColor: Color) {
+fun TranscriptBubble(text: String, textColor: Color, maxLines: Int = Int.MAX_VALUE) {
     Surface(
         color = textColor.copy(alpha = 0.12f),
         shape = RoundedCornerShape(12.dp),
@@ -198,7 +198,7 @@ fun TranscriptBubble(text: String, textColor: Color) {
             Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall,
             color = textColor,
-            maxLines = 4,
+            maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
         )
     }

@@ -93,6 +93,10 @@ class PaseoDaemonClient(
 
     private val timelineSummaries = mutableMapOf<String, String>()
 
+    // Responses arrive as multiple timeline items (parts). Accumulate them
+    // per item id so the card shows the whole response, not just the last part.
+    private val timelineParts = mutableMapOf<String, LinkedHashMap<String, String>>()
+
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
     private var reconnectJob: Job? = null
@@ -167,6 +171,7 @@ class PaseoDaemonClient(
             pendingArchiveRequests.clear()
         }
         timelineSummaries.clear()
+        timelineParts.clear()
         _serverName.value = ""
         _serverId.value = ""
         _agents.value = emptyList()
@@ -796,6 +801,7 @@ class PaseoDaemonClient(
                 val agentId = payload["agentId"]?.jsonPrimitive?.contentOrNull ?: return
                 Log.d(TAG, "agent_update remove: $agentId")
                 timelineSummaries.remove(agentId)
+                timelineParts.remove(agentId)
                 _agents.value = _agents.value.filter { it.id != agentId }
                 synchronized(pendingArchiveRequests) { pendingArchiveRequests.remove(agentId) }
                     ?.second?.complete(true)
@@ -817,10 +823,25 @@ class PaseoDaemonClient(
         when (itemType) {
             "assistant_message" -> {
                 val text = item["text"]?.jsonPrimitive?.contentOrNull ?: return
-                timelineSummaries[agentId] = text.trim()
+                val partId = item["id"]?.jsonPrimitive?.contentOrNull
+                val parts = timelineParts.getOrPut(agentId) { LinkedHashMap() }
+                if (partId != null) {
+                    parts[partId] = text.trim()
+                } else {
+                    // No stable part id — fall back to whole-message replace.
+                    parts.clear()
+                    parts["_"] = text.trim()
+                }
+                timelineSummaries[agentId] = parts.values.filter { it.isNotBlank() }.joinToString("\n\n")
             }
             "reasoning" -> {
                 timelineSummaries[agentId] = "Thinking\u2026"
+            }
+            "user_message" -> {
+                // New turn: the accumulated response parts belong to the
+                // previous turn and should not be glued onto the next response.
+                timelineParts.remove(agentId)
+                return
             }
             else -> return
         }

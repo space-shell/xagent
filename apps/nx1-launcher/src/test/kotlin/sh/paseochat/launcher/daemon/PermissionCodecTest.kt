@@ -62,9 +62,9 @@ class PermissionCodecTest {
         )
         val response = responseOf(json)
         assertEquals(
+            "selecting a server-provided deny action must transmit behavior=deny",
             "deny",
             response["behavior"]?.jsonPrimitive?.contentOrNull,
-            "selecting a server-provided deny action must transmit behavior=deny",
         )
         assertEquals("act_no", response["selectedActionId"]!!.jsonPrimitive.content)
     }

@@ -38,11 +38,7 @@ object PermissionCodec {
         actionId: String,
         allow: Boolean,
     ): JsonObject = envelope(agentId, requestId) {
-        // F-01: parity with the original PaseoDaemonClient implementation —
-        // behavior is hardcoded to "allow" whenever an action is selected.
-        @Suppress("UNUSED_EXPRESSION")
-        allow
-        put("behavior", "allow")
+        put("behavior", if (allow) "allow" else "deny")
         put("selectedActionId", actionId)
     }
 

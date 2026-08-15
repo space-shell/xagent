@@ -651,6 +651,7 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                         pendingSessionId = null
                                     },
                                     onClearError = { connectionManager.clearWizardError() },
+                                    onWizardReset = { createdAgentSignal = 0 },
                                     onCreateAgent = { pid, wid, cwd, prov, mid, prompt ->
                                         scope.launch {
                                             val result = connectionManager.createAgent(

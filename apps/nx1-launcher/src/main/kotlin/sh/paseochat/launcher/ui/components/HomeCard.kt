@@ -94,6 +94,7 @@ fun HomeCard(
     onMicUp: () -> Unit,
     onCancelTranscript: () -> Unit,
     onClearError: () -> Unit,
+    onWizardReset: () -> Unit,
     onOpenCreatedAgent: () -> Unit,
     onCreateAgent: (profileId: String, workspaceId: String, cwd: String, provider: String, modelId: String?, prompt: String) -> Unit,
     onLaunchPaseo: () -> Unit,
@@ -115,7 +116,6 @@ fun HomeCard(
 
     var swipeOffset by remember { mutableFloatStateOf(0f) }
     var swiping by remember { mutableStateOf(false) }
-    var lastSeenCreatedSignal by rememberSaveable { mutableIntStateOf(0) }
     val visualSwipe by animateFloatAsState(
         targetValue = swipeOffset,
         animationSpec = if (swiping) snap() else spring(dampingRatio = Spring.DampingRatioLowBouncy),
@@ -133,6 +133,7 @@ fun HomeCard(
         selectedModel = null
         localError = null
         swipeOffset = 0f
+        onWizardReset()
     }
 
     LaunchedEffect(resetSignal) {
@@ -140,10 +141,7 @@ fun HomeCard(
     }
 
     LaunchedEffect(createdAgentSignal) {
-        if (createdAgentSignal > 0 && createdAgentSignal != lastSeenCreatedSignal) {
-            lastSeenCreatedSignal = createdAgentSignal
-            step = STEP_CREATED
-        }
+        if (createdAgentSignal > 0) step = STEP_CREATED
     }
 
     LaunchedEffect(wizardError) {

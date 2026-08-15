@@ -186,21 +186,7 @@ class PaseoDaemonClient(
     }
 
     fun respondToPermission(agentId: String, permissionRequestId: String, allow: Boolean) {
-        val msg = buildJsonObject {
-            put("type", "session")
-            putJsonObject("message") {
-                put("type", "agent_permission_response")
-                put("agentId", agentId)
-                put("requestId", permissionRequestId)
-                putJsonObject("response") {
-                    if (allow) {
-                        put("behavior", "allow")
-                    } else {
-                        put("behavior", "deny")
-                    }
-                }
-            }
-        }
+        val msg = PermissionCodec.permissionResponse(agentId, permissionRequestId, allow)
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "respondToPermission agentId=$agentId reqId=$permissionRequestId allow=$allow")
         sendOrEncrypt(json)
@@ -235,54 +221,19 @@ class PaseoDaemonClient(
     fun respondToPermissionWithAction(
         agentId: String,
         permissionRequestId: String,
-        selectedActionId: String? = null,
-        customAnswer: String? = null,
+        selectedActionId: String,
+        allow: Boolean,
     ) {
-        val msg = buildJsonObject {
-            put("type", "session")
-            putJsonObject("message") {
-                put("type", "agent_permission_response")
-                put("agentId", agentId)
-                put("requestId", permissionRequestId)
-                putJsonObject("response") {
-                    if (selectedActionId != null) {
-                        put("behavior", "allow")
-                        put("selectedActionId", selectedActionId)
-                    } else if (customAnswer != null) {
-                        put("behavior", "allow")
-                        putJsonObject("updatedInput") {
-                            put("answer", customAnswer)
-                        }
-                    } else {
-                        put("behavior", "allow")
-                    }
-                }
-            }
-        }
+        val msg = PermissionCodec.permissionResponseWithAction(
+            agentId, permissionRequestId, selectedActionId, allow,
+        )
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
-        Log.d(TAG, "respondToPermissionWithAction agentId=$agentId reqId=$permissionRequestId actionId=$selectedActionId custom=${customAnswer != null}")
+        Log.d(TAG, "respondToPermissionWithAction agentId=$agentId reqId=$permissionRequestId actionId=$selectedActionId allow=$allow")
         sendOrEncrypt(json)
     }
 
     fun respondToQuestion(agentId: String, permissionRequestId: String, answers: Map<String, String>) {
-        val msg = buildJsonObject {
-            put("type", "session")
-            putJsonObject("message") {
-                put("type", "agent_permission_response")
-                put("agentId", agentId)
-                put("requestId", permissionRequestId)
-                putJsonObject("response") {
-                    put("behavior", "allow")
-                    putJsonObject("updatedInput") {
-                        putJsonObject("answers") {
-                            answers.forEach { (header, answer) ->
-                                put(header, answer)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        val msg = PermissionCodec.permissionResponseWithQuestionAnswers(agentId, permissionRequestId, answers)
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "respondToQuestion agentId=$agentId reqId=$permissionRequestId answers=${answers.size}")
         sendOrEncrypt(json)

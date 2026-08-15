@@ -39,8 +39,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew || true
 
+      - name: Unit tests (E2EE known-answer vectors)
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Check 16 KB ELF compatibility
+        run: python3 scripts/check-16kb.py apps/nx1-launcher/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
@@ -91,6 +97,9 @@ jobs:
 
       - name: Assemble release APK
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Check 16 KB ELF compatibility
+        run: python3 scripts/check-16kb.py apps/nx1-launcher/build/outputs/apk/release/app-release.apk
 
       - name: Rename APK to include tag
         run: |

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -69,7 +70,8 @@ private const val STEP_SERVER = 1
 private const val STEP_PROJECT = 2
 private const val STEP_MODEL = 3
 private const val STEP_PROMPT = 4
-private const val STEP_CREATED = 5
+private const val STEP_CREATING = 5
+private const val STEP_CREATED = 6
 
 private val RestartRed = Color(0xFFE57373)
 
@@ -113,6 +115,7 @@ fun HomeCard(
 
     var swipeOffset by remember { mutableFloatStateOf(0f) }
     var swiping by remember { mutableStateOf(false) }
+    var lastSeenCreatedSignal by rememberSaveable { mutableIntStateOf(0) }
     val visualSwipe by animateFloatAsState(
         targetValue = swipeOffset,
         animationSpec = if (swiping) snap() else spring(dampingRatio = Spring.DampingRatioLowBouncy),
@@ -137,7 +140,16 @@ fun HomeCard(
     }
 
     LaunchedEffect(createdAgentSignal) {
-        if (createdAgentSignal > 0) step = STEP_CREATED
+        if (createdAgentSignal > 0 && createdAgentSignal != lastSeenCreatedSignal) {
+            lastSeenCreatedSignal = createdAgentSignal
+            step = STEP_CREATED
+        }
+    }
+
+    LaunchedEffect(wizardError) {
+        if (wizardError != null && step == STEP_CREATING) {
+            step = STEP_PROMPT
+        }
     }
 
     val connectedProfiles = profiles.filter {
@@ -341,11 +353,14 @@ fun HomeCard(
                                     if (transcript.isNullOrBlank()) "prompt" else null,
                                 ).joinToString(", ")}"
                             } else {
+                                step = STEP_CREATING
                                 onCreateAgent(pid, ws.second.id, ws.second.rootPath, m?.provider ?: "", m?.modelId, transcript)
                             }
                         },
                         onCancel = onCancelTranscript,
                     )
+
+                    STEP_CREATING -> CreatingStep()
 
                     STEP_CREATED -> CreatedStep(
                         sidebarSide = sidebarSide,
@@ -436,6 +451,27 @@ private fun WelcomeStep(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun CreatingStep() {
+    val cs = MaterialTheme.colorScheme
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(
+                color = cs.primary,
+                strokeWidth = 3.dp,
+                modifier = Modifier.size(40.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Creating session\u2026",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = cs.onSurface,
+            )
         }
     }
 }

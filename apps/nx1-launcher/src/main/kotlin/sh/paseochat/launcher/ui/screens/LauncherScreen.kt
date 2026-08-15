@@ -652,8 +652,6 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                     },
                                     onClearError = { connectionManager.clearWizardError() },
                                     onCreateAgent = { pid, wid, cwd, prov, mid, prompt ->
-                                        pendingTranscript = null
-                                        pendingSessionId = null
                                         scope.launch {
                                             val result = connectionManager.createAgent(
                                                 profileId = pid,
@@ -664,6 +662,8 @@ private fun LauncherScreenContent(connectionManager: ConnectionManager, attentio
                                                 initialPrompt = prompt,
                                             )
                                             if (result is CreateAgentResult.Success) {
+                                                pendingTranscript = null
+                                                pendingSessionId = null
                                                 createdAgentInfo = result.agentId to (serverIds[pid] ?: "")
                                                 createdAgentSignal++
                                                 val serverLabel = serverNames[pid]?.ifBlank { null }

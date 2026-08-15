@@ -93,9 +93,11 @@ class PaseoDaemonClient(
 
     private val timelineSummaries = mutableMapOf<String, String>()
 
-    // Responses arrive as multiple timeline items (parts). Accumulate them
-    // per item id so the card shows the whole response, not just the last part.
-    private val timelineParts = mutableMapOf<String, LinkedHashMap<String, String>>()
+    // Assistant text arrives as streaming deltas (assistant_message timeline
+    // items carry no id and each holds only a fragment of the response —
+    // deltas may split mid-token, so text is appended raw, never trimmed).
+    // Reset at turn boundaries (user_message / sendAgentMessage).
+    private val timelineText = mutableMapOf<String, StringBuilder>()
 
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -171,7 +173,7 @@ class PaseoDaemonClient(
             pendingArchiveRequests.clear()
         }
         timelineSummaries.clear()
-        timelineParts.clear()
+        timelineText.clear()
         _serverName.value = ""
         _serverId.value = ""
         _agents.value = emptyList()
@@ -298,6 +300,9 @@ class PaseoDaemonClient(
         }
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "sendAgentMessage agentId=$agentId text=${text.take(80)}")
+        // Our message starts a new turn — drop the previous response's
+        // accumulated deltas so the next response starts from scratch.
+        timelineText.remove(agentId)
         sendOrEncrypt(json)
     }
 
@@ -801,7 +806,7 @@ class PaseoDaemonClient(
                 val agentId = payload["agentId"]?.jsonPrimitive?.contentOrNull ?: return
                 Log.d(TAG, "agent_update remove: $agentId")
                 timelineSummaries.remove(agentId)
-                timelineParts.remove(agentId)
+                timelineText.remove(agentId)
                 _agents.value = _agents.value.filter { it.id != agentId }
                 synchronized(pendingArchiveRequests) { pendingArchiveRequests.remove(agentId) }
                     ?.second?.complete(true)
@@ -823,24 +828,20 @@ class PaseoDaemonClient(
         when (itemType) {
             "assistant_message" -> {
                 val text = item["text"]?.jsonPrimitive?.contentOrNull ?: return
-                val partId = item["id"]?.jsonPrimitive?.contentOrNull
-                val parts = timelineParts.getOrPut(agentId) { LinkedHashMap() }
-                if (partId != null) {
-                    parts[partId] = text.trim()
-                } else {
-                    // No stable part id — fall back to whole-message replace.
-                    parts.clear()
-                    parts["_"] = text.trim()
+                val acc = timelineText.getOrPut(agentId) { StringBuilder() }
+                if (acc.isNotEmpty() && text.length >= acc.length && text.startsWith(acc.toString())) {
+                    // Cumulative update (full text so far) — replace.
+                    acc.setLength(0)
                 }
-                timelineSummaries[agentId] = parts.values.filter { it.isNotBlank() }.joinToString("\n\n")
+                acc.append(text)
+                timelineSummaries[agentId] = acc.toString()
             }
             "reasoning" -> {
                 timelineSummaries[agentId] = "Thinking\u2026"
             }
             "user_message" -> {
-                // New turn: the accumulated response parts belong to the
-                // previous turn and should not be glued onto the next response.
-                timelineParts.remove(agentId)
+                // Turn boundary: start accumulating the next response.
+                timelineText.remove(agentId)
                 return
             }
             else -> return

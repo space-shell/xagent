@@ -158,6 +158,8 @@ class ConnectionManager(
 
     private var remergeJob: Job? = null
 
+    private val optimisticallyArchived = HashSet<String>()
+
     private fun remerge() {
         remergeJob?.cancel()
         remergeJob = scope.launch {
@@ -180,7 +182,10 @@ class ConnectionManager(
             }
         }
         val seen = HashSet<String>()
-        _allAgents.value = merged.filter { seen.add(it.id) }.toList()
+        _allAgents.value = merged
+            .filter { it.id !in optimisticallyArchived }
+            .filter { seen.add(it.id) }
+            .toList()
     }
 
     private fun clientForAgent(agentId: String): PaseoDaemonClient? {
@@ -217,8 +222,18 @@ class ConnectionManager(
     }
 
     fun archiveAgent(agentId: String) {
+        if (!optimisticallyArchived.add(agentId)) return
+        val client = clientForAgent(agentId)
+        if (client == null) {
+            optimisticallyArchived.remove(agentId)
+            return
+        }
         _allAgents.value = _allAgents.value.filter { it.id != agentId }
-        clientForAgent(agentId)?.archiveAgent(agentId)
+        scope.launch {
+            val confirmed = client.archiveAgent(agentId)
+            optimisticallyArchived.remove(agentId)
+            if (!confirmed) remerge()
+        }
     }
 
     fun refreshWizardData() {

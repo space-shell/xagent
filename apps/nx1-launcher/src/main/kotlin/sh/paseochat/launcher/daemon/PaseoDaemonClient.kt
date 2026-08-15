@@ -56,6 +56,7 @@ private const val HANDSHAKE_RETRY_MS = 1_000L
 private const val MAX_HANDSHAKE_RETRIES = 20
 
 private const val CREATE_AGENT_TIMEOUT_MS = 60_000L
+private const val ARCHIVE_AGENT_TIMEOUT_MS = 10_000L
 
 data class RelayConfig(
     val serverId: String,
@@ -87,6 +88,8 @@ class PaseoDaemonClient(
     val providerModels: StateFlow<List<ProviderModelOption>> = _providerModels.asStateFlow()
 
     private val pendingCreateRequests = mutableMapOf<String, kotlinx.coroutines.CompletableDeferred<CreateAgentResult>>()
+
+    private val pendingArchiveRequests = mutableMapOf<String, Pair<String, kotlinx.coroutines.CompletableDeferred<Boolean>>>()
 
     private val timelineSummaries = mutableMapOf<String, String>()
 
@@ -159,6 +162,10 @@ class PaseoDaemonClient(
         reconnectJob?.cancel()
         webSocket?.close(1000, "client disconnect")
         webSocket = null
+        synchronized(pendingArchiveRequests) {
+            pendingArchiveRequests.values.forEach { it.second.complete(false) }
+            pendingArchiveRequests.clear()
+        }
         timelineSummaries.clear()
         _serverName.value = ""
         _serverId.value = ""
@@ -289,18 +296,30 @@ class PaseoDaemonClient(
         sendOrEncrypt(json)
     }
 
-    fun archiveAgent(agentId: String) {
+    suspend fun archiveAgent(agentId: String): Boolean {
+        val requestId = UUID.randomUUID().toString()
+        val deferred = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        synchronized(pendingArchiveRequests) { pendingArchiveRequests[agentId] = requestId to deferred }
+
         val msg = buildJsonObject {
             put("type", "session")
             putJsonObject("message") {
                 put("type", "archive_agent_request")
                 put("agentId", agentId)
-                put("requestId", UUID.randomUUID().toString())
+                put("requestId", requestId)
             }
         }
         val json = DaemonJson.encodeToString(JsonObject.serializer(), msg)
         Log.d(TAG, "archiveAgent agentId=$agentId")
-        sendOrEncrypt(json)
+        if (!sendOrEncrypt(json)) {
+            synchronized(pendingArchiveRequests) { pendingArchiveRequests.remove(agentId) }
+            return false
+        }
+
+        return withTimeoutOrNull(ARCHIVE_AGENT_TIMEOUT_MS) { deferred.await() }
+            ?: false.also {
+                synchronized(pendingArchiveRequests) { pendingArchiveRequests.remove(agentId) }
+            }
     }
 
     fun fetchWorkspaces() {
@@ -402,13 +421,14 @@ class PaseoDaemonClient(
         webSocket = httpClient.newWebSocket(request, DaemonListener())
     }
 
-    private fun sendOrEncrypt(json: String) {
+    private fun sendOrEncrypt(json: String): Boolean {
+        val socket = webSocket ?: return false
         val key = e2eeSharedKey
-        if (relayMode && e2eeReady && key != null) {
+        return if (relayMode && e2eeReady && key != null) {
             val encrypted = E2eeCrypto.encrypt(json.toByteArray(Charsets.UTF_8), key)
-            webSocket?.send(ByteString.of(*encrypted))
+            socket.send(ByteString.of(*encrypted))
         } else {
-            webSocket?.send(json)
+            socket.send(json)
         }
     }
 
@@ -551,6 +571,12 @@ class PaseoDaemonClient(
                 if (requestId != null) {
                     synchronized(pendingCreateRequests) { pendingCreateRequests.remove(requestId) }
                         ?.complete(CreateAgentResult.Failure(error ?: "rpc_error", error))
+                    synchronized(pendingArchiveRequests) {
+                        pendingArchiveRequests.entries.firstOrNull { it.value.first == requestId }
+                    }?.let { entry ->
+                        pendingArchiveRequests.remove(entry.key)
+                        entry.value.second.complete(false)
+                    }
                 }
             }
             "send_agent_message_response" -> {
@@ -771,6 +797,8 @@ class PaseoDaemonClient(
                 Log.d(TAG, "agent_update remove: $agentId")
                 timelineSummaries.remove(agentId)
                 _agents.value = _agents.value.filter { it.id != agentId }
+                synchronized(pendingArchiveRequests) { pendingArchiveRequests.remove(agentId) }
+                    ?.second?.complete(true)
             }
         }
     }
